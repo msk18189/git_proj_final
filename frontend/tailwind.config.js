@@ -1,0 +1,86 @@
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  darkMode: 'class',
+  content: [
+    './app/**/*.{js,ts,jsx,tsx}',
+    './components/**/*.{js,ts,jsx,tsx}',
+  ],
+  theme: {
+    extend: {
+      colors: {
+        warm: {
+          50: '#F8FAFC',
+          100: '#F1F5F9',
+          200: '#E2E8F0',
+          300: '#CBD5E1',
+          400: '#94A3B8',
+          500: '#64748B',
+          600: '#475569',
+          700: '#334155',
+          800: '#1E293B',
+          900: '#0F172A',
+          950: '#020617',
+        },
+        midnight: {
+          DEFAULT: '#1E293B',
+          50: '#0F172A',
+          100: '#1E293B',
+          200: '#334155',
+          300: '#475569',
+          400: '#64748B',
+          500: '#94A3B8',
+          600: '#CBD5E1',
+          700: '#E2E8F0',
+          800: '#F1F5F9',
+          900: '#F8FAFC',
+          950: '#FFFFFF',
+        },
+        palette: {
+          emerald: { DEFAULT: '#10B981', light: '#ECFDF5', dark: '#065F46', text: '#047857' },
+          teal: { DEFAULT: '#14B8A6', light: '#F0FDFA', dark: '#115E59', text: '#0F766E' },
+          rose: { DEFAULT: '#EF4444', light: '#FEF2F2', dark: '#991B1B', text: '#B91C1C' },
+          amber: { DEFAULT: '#F59E0B', light: '#FEF3C7', dark: '#78350F', text: '#D97706' },
+          orange: { DEFAULT: '#F97316', light: '#FFF7ED', dark: '#9A3412', text: '#C2410C' },
+          lime: { DEFAULT: '#84CC16', light: '#F7FEE7', dark: '#3F6212', text: '#4D7C0F' },
+        },
+        accent: {
+          coral: '#EF4444',
+          teal: '#14B8A6',
+          amber: '#F59E0B',
+          emerald: '#10B981',
+          orange: '#F97316',
+          lime: '#84CC16',
+          rose: '#EF4444',
+        },
+        primary: 'var(--text-heading)',
+        secondary: 'var(--text-body)',
+        muted: 'var(--text-muted)',
+        background: 'var(--bg-base)',
+        surface: 'var(--bg-surface)',
+        'surface-elevated': 'var(--bg-surface-elevated)',
+        'surface-soft': 'var(--bg-surface-soft)',
+        'bg-hover': 'var(--bg-hover)',
+        border: 'var(--border-primary)',
+        'border-muted': 'var(--border-muted)',
+      },
+      fontFamily: {
+        sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
+      },
+      borderRadius: {
+        shell: '24px',
+        card: '16px',
+      },
+      boxShadow: {
+        glow: '0 0 20px -4px rgba(99, 102, 241, 0.15)',
+        'glow-landing': '0 8px 30px rgba(0, 0, 0, 0.04), 0 0 40px -10px rgba(99, 102, 241, 0.1)',
+        card: '0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05)',
+        shell: '0 4px 20px -4px rgba(0, 0, 0, 0.05)',
+      },
+      backgroundImage: {
+        mesh:
+          'radial-gradient(at 30% 20%, rgba(99, 102, 241, 0.04) 0px, transparent 50%), radial-gradient(at 70% 80%, rgba(16, 185, 129, 0.03) 0px, transparent 50%)',
+      },
+    },
+  },
+  plugins: [],
+}

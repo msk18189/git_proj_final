@@ -1,0 +1,329 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-base: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-surface-elevated: #ffffff;
+  --bg-surface-soft: #f1f5f9;
+  --bg-hover: #f1f5f9;
+  --border-primary: rgba(226, 232, 240, 0.8);
+  --border-muted: #f1f5f9;
+  --text-heading: #0f172a;
+  --text-body: #334155;
+  --text-muted: #64748b;
+  --c-sage: #10b981;
+  --c-terracotta: #ef4444;
+  --c-amber: #f59e0b;
+}
+
+.dark {
+  --bg-base: #080c14;
+  --bg-surface: #0f1422;
+  --bg-surface-elevated: #161e31;
+  --bg-surface-soft: #121b2d;
+  --bg-hover: #1e293b;
+  --border-primary: #1e293b;
+  --border-muted: #111827;
+  --text-heading: #f8fafc;
+  --text-body: #cbd5e1;
+  --text-muted: #94a3b8;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight: 400;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg-base);
+  color: var(--text-body);
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.gradient-text {
+  background: linear-gradient(90deg, #6366f1 0%, #10b981 50%, #f59e0b 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── Typography Hierarchy ───────────────────────────────────────────────── */
+.text-heading {
+  color: var(--text-heading);
+  @apply font-bold tracking-tight;
+}
+
+.text-body {
+  color: var(--text-body);
+  @apply font-normal;
+}
+
+.text-muted {
+  color: var(--text-muted);
+  @apply font-normal;
+}
+
+.page-heading {
+  @apply text-2xl font-extrabold tracking-tight text-primary sm:text-3xl;
+}
+
+.page-subheading {
+  @apply mt-1 text-sm text-muted font-medium;
+}
+
+.section-title {
+  @apply text-base font-bold tracking-tight text-primary;
+}
+
+.section-subtitle {
+  @apply mt-0.5 text-xs text-muted font-semibold;
+}
+
+/* ─── Card Design System ─────────────────────────────────────────────────── */
+.card {
+  @apply rounded-card border border-border bg-surface p-6 shadow-card transition-all duration-200;
+}
+.dark .card {
+  @apply border-border bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.3)];
+}
+
+.card-hover {
+  @apply hover:border-border hover:shadow-md hover:-translate-y-[1px];
+}
+.dark .card-hover {
+  @apply hover:border-border hover:shadow-[0_8px_30px_rgba(0,0,0,0.4)] hover:-translate-y-[1px];
+}
+
+.card-glow {
+  @apply relative overflow-hidden;
+}
+
+/* Landing — centered analyze box with warm glow */
+.landing-center {
+  @apply flex min-h-screen w-full items-center justify-center bg-slate-50 p-4 sm:p-8;
+}
+.dark .landing-center {
+  @apply bg-[#080c14];
+}
+
+.landing-glow-wrap {
+  @apply relative mx-auto w-full max-w-5xl;
+}
+
+.landing-glow-wrap::before {
+  content: '';
+  position: absolute;
+  inset: -40px;
+  border-radius: 2.5rem;
+  background: radial-gradient(ellipse at center,
+      rgba(99, 102, 241, 0.08) 0%,
+      rgba(16, 185, 129, 0.04) 50%,
+      transparent 75%);
+  filter: blur(32px);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.landing-glow-box {
+  @apply relative z-10 overflow-hidden rounded-[24px] border border-slate-200/80 bg-white/95 shadow-xl backdrop-blur-md;
+}
+.dark .landing-glow-box {
+  @apply border-slate-800 bg-[#0f1422]/95 shadow-[0_12px_40px_rgba(0,0,0,0.5)];
+}
+
+.landing-hero-title {
+  @apply mb-6 text-center;
+}
+
+.input-field {
+  @apply w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 placeholder-slate-400 transition focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/25;
+  color: #1e293b !important;
+  background-color: #ffffff !important;
+}
+.dark .input-field {
+  @apply border-slate-800 bg-[#0f1422] text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:ring-indigo-500/25;
+  color: #f8fafc !important;
+  background-color: #0f1422 !important;
+}
+
+.auth-card {
+  @apply rounded-[24px] border border-slate-200 bg-white/95 p-8 shadow-xl shadow-slate-200/40;
+}
+.dark .auth-card {
+  @apply border-slate-800 bg-[#0f1422]/95 shadow-2xl shadow-black/50;
+}
+
+.btn-primary {
+  @apply rounded-xl bg-indigo-600 px-5 py-2.5 font-semibold text-white transition-all duration-200 hover:bg-indigo-700 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.btn-secondary {
+  @apply rounded-xl border border-slate-200 bg-white px-5 py-2.5 font-semibold transition-all duration-200 hover:border-indigo-500 hover:bg-indigo-50 hover:text-indigo-700;
+  color: #1e293b !important;
+}
+.dark .btn-secondary {
+  @apply border-slate-800 bg-[#0f1422] hover:border-indigo-500 hover:bg-indigo-950/30 hover:text-indigo-400;
+  color: #f8fafc !important;
+}
+
+.btn-ghost {
+  @apply rounded-lg px-4 py-2 text-sm transition hover:bg-slate-100;
+  color: #475569 !important;
+}
+.btn-ghost:hover {
+  color: #0f172a !important;
+}
+.dark .btn-ghost {
+  @apply hover:bg-slate-800;
+  color: #cbd5e1 !important;
+}
+.dark .btn-ghost:hover {
+  color: #ffffff !important;
+}
+
+/* ─── Global form elements styling overrides ────────────────────────────── */
+select,
+select option,
+input[type="date"],
+input[type="number"],
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+input[type="url"],
+textarea {
+  color: #1e293b;
+  background-color: #ffffff;
+  border-color: #e2e8f0;
+}
+
+.dark select,
+.dark select option,
+.dark input[type="date"],
+.dark input[type="number"],
+.dark input[type="text"],
+.dark input[type="email"],
+.dark input[type="password"],
+.dark input[type="search"],
+.dark input[type="url"],
+.dark textarea {
+  color: #f8fafc;
+  background-color: #0f1422;
+  border-color: #1e293d;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+.dark ::-webkit-scrollbar-track {
+  background: #0d121f;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #1e293d;
+}
+
+.auth-bg {
+  background: radial-gradient(circle at 15% 25%, rgba(198, 123, 92, 0.05) 0%, transparent 40%),
+              radial-gradient(circle at 85% 75%, rgba(212, 160, 84, 0.04) 0%, transparent 45%),
+              radial-gradient(circle at 50% 50%, rgba(198, 123, 92, 0.04) 0%, transparent 60%),
+              #faf6f0;
+  position: relative;
+  overflow: hidden;
+}
+.dark .auth-bg {
+  background: radial-gradient(circle at 15% 25%, rgba(198, 123, 92, 0.08) 0%, transparent 40%),
+              radial-gradient(circle at 85% 75%, rgba(212, 160, 84, 0.06) 0%, transparent 45%),
+              #080c14;
+}
+
+/* Ambient gradient mesh glowing blobs */
+.auth-glow-1 {
+  position: absolute;
+  top: 10%;
+  left: 15%;
+  width: 450px;
+  height: 450px;
+  background: radial-gradient(circle, rgba(198, 123, 92, 0.05) 0%, transparent 70%);
+  filter: blur(80px);
+  pointer-events: none;
+  animation: auth-float-slow 22s ease-in-out infinite alternate;
+}
+
+.auth-glow-2 {
+  position: absolute;
+  bottom: 10%;
+  right: 15%;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(212, 160, 84, 0.04) 0%, transparent 70%);
+  filter: blur(100px);
+  pointer-events: none;
+  animation: auth-float-slower 28s ease-in-out infinite alternate-reverse;
+}
+
+@keyframes auth-float-slow {
+  0% { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(50px, 30px) scale(1.1); }
+}
+
+@keyframes auth-float-slower {
+  0% { transform: translate(0, 0) scale(1.1); }
+  100% { transform: translate(-60px, -20px) scale(0.95); }
+}
+
+/* Print Styles for PDF Export */
+@media print {
+  @page {
+    margin: 10mm;
+    size: auto;
+  }
+  body {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    background-color: #faf6f0 !important;
+  }
+  .printable-report {
+    background-color: #faf6f0 !important;
+  }
+  .avoid-break {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .avoid-break-before {
+    page-break-before: always;
+    break-before: always;
+  }
+  .report-page {
+    page-break-after: always;
+    break-after: always;
+  }
+  .report-page:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+  ::-webkit-scrollbar {
+    display: none;
+  }
+}
