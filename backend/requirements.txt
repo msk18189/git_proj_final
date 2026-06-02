@@ -50,3 +50,6 @@ slowapi>=0.1.8
 gunicorn
 matplotlib>=3.8.0
 reportlab>=4.1.0
+email-validator>=2.0.0
+httpx>=0.28.0
+

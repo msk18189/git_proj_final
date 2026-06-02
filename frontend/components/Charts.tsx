@@ -55,7 +55,17 @@ function EmptyChart({ title, message }: { title: string; message: string }) {
   )
 }
 
-function ChartShell({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function ChartShell({ title, subtitle, children, isPrint = false }: { title: string; subtitle?: string; children: React.ReactNode; isPrint?: boolean }) {
+  if (isPrint) {
+    return (
+      <div className="card h-full">
+        <h3 className="section-title">{title}</h3>
+        {subtitle && <p className="section-subtitle mb-4">{subtitle}</p>}
+        {!subtitle && <div className="mb-4" />}
+        {children}
+      </div>
+    )
+  }
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card card-hover card-glow h-full">
       <h3 className="section-title">{title}</h3>
@@ -81,7 +91,7 @@ const renderColorLegend = (value: string) => {
   )
 }
 
-export function MonthlyFlowChart({ data, isAnimationActive = true }: { data: any[], isAnimationActive?: boolean }) {
+export function MonthlyFlowChart({ data, isAnimationActive = true, isPrint = false }: { data: any[], isAnimationActive?: boolean, isPrint?: boolean }) {
   const chartStyles = useDynamicChartStyle()
   const chartData = Array.isArray(data)
     ? data
@@ -94,25 +104,27 @@ export function MonthlyFlowChart({ data, isAnimationActive = true }: { data: any
     return <EmptyChart title="Monthly PR Flow" message="No PR activity in the selected period." />
   }
 
+  const chart = (
+    <BarChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }} width={isPrint ? 460 : undefined} height={isPrint ? 260 : undefined}>
+      <CartesianGrid strokeDasharray="3 3" stroke={chartStyles.gridColor} vertical={false} />
+      <XAxis dataKey="month" stroke={chartStyles.axisColor} tick={{ fontSize: 10, fill: chartStyles.textColor }} axisLine={false} tickLine={false} />
+      <YAxis stroke={chartStyles.axisColor} allowDecimals={false} tick={{ fontSize: 10, fill: chartStyles.textColor }} axisLine={false} tickLine={false} />
+      <Tooltip contentStyle={chartStyles.tooltipStyle} cursor={{ fill: 'rgba(148, 163, 184, 0.05)' }} />
+      <Legend wrapperStyle={chartStyles.legendStyle} formatter={renderColorLegend} iconType="circle" iconSize={6} />
+      <Bar dataKey="created" name="Created" fill={CHART.created} radius={[4, 4, 0, 0]} isAnimationActive={!isPrint && isAnimationActive} />
+      <Bar dataKey="merged" name="Merged" fill={CHART.merged} radius={[4, 4, 0, 0]} isAnimationActive={!isPrint && isAnimationActive} />
+      <Bar dataKey="closed" name="Closed (unmerged)" fill={CHART.closed} radius={[4, 4, 0, 0]} isAnimationActive={!isPrint && isAnimationActive} />
+    </BarChart>
+  )
+
   return (
-    <ChartShell title="Monthly PR Flow" subtitle="Created · Merged · Closed — each in a distinct color">
-      <ResponsiveContainer width="100%" height={300}>
-        <BarChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={chartStyles.gridColor} vertical={false} />
-          <XAxis dataKey="month" stroke={chartStyles.axisColor} tick={{ fontSize: 10, fill: chartStyles.textColor }} axisLine={false} tickLine={false} />
-          <YAxis stroke={chartStyles.axisColor} allowDecimals={false} tick={{ fontSize: 10, fill: chartStyles.textColor }} axisLine={false} tickLine={false} />
-          <Tooltip contentStyle={chartStyles.tooltipStyle} cursor={{ fill: 'rgba(148, 163, 184, 0.05)' }} />
-          <Legend wrapperStyle={chartStyles.legendStyle} formatter={renderColorLegend} iconType="circle" iconSize={6} />
-          <Bar dataKey="created" name="Created" fill={CHART.created} radius={[4, 4, 0, 0]} isAnimationActive={isAnimationActive} />
-          <Bar dataKey="merged" name="Merged" fill={CHART.merged} radius={[4, 4, 0, 0]} isAnimationActive={isAnimationActive} />
-          <Bar dataKey="closed" name="Closed (unmerged)" fill={CHART.closed} radius={[4, 4, 0, 0]} isAnimationActive={isAnimationActive} />
-        </BarChart>
-      </ResponsiveContainer>
+    <ChartShell title="Monthly PR Flow" subtitle="Created · Merged · Closed — each in a distinct color" isPrint={isPrint}>
+      {isPrint ? chart : <ResponsiveContainer width="100%" height={300}>{chart}</ResponsiveContainer>}
     </ChartShell>
   )
 }
 
-export function ThroughputChart({ data, isAnimationActive = true }: { data: any[] | Record<string, number>, isAnimationActive?: boolean }) {
+export function ThroughputChart({ data, isAnimationActive = true, isPrint = false }: { data: any[] | Record<string, number>, isAnimationActive?: boolean, isPrint?: boolean }) {
   const chartStyles = useDynamicChartStyle()
   const { isDark } = useTheme()
   const chartData = Array.isArray(data)
@@ -125,34 +137,36 @@ export function ThroughputChart({ data, isAnimationActive = true }: { data: any[
     return <EmptyChart title="PR Throughput" message="No merged PRs in the last 8 weeks." />
   }
 
+  const chart = (
+    <AreaChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }} width={isPrint ? 460 : undefined} height={isPrint ? 260 : undefined}>
+      <defs>
+        <linearGradient id="throughputGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={CHART.line} stopOpacity={isDark ? 0.35 : 0.45} />
+          <stop offset="100%" stopColor={CHART.line} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <CartesianGrid strokeDasharray="3 3" stroke={chartStyles.gridColor} vertical={false} />
+      <XAxis dataKey="week" stroke={chartStyles.axisColor} tick={{ fontSize: 10, fill: chartStyles.textColor }} axisLine={false} tickLine={false} />
+      <YAxis stroke={chartStyles.axisColor} allowDecimals={false} tick={{ fontSize: 10, fill: chartStyles.textColor }} axisLine={false} tickLine={false} />
+      <Tooltip contentStyle={chartStyles.tooltipStyle} formatter={(value: number) => [`${value} PRs`, 'Merged']} />
+      <Legend wrapperStyle={chartStyles.legendStyle} formatter={renderColorLegend} iconType="circle" iconSize={6} />
+      <Area
+        type="monotone"
+        dataKey="prs"
+        name="Merged PRs"
+        stroke={CHART.line}
+        strokeWidth={2.5}
+        fill="url(#throughputGrad)"
+        isAnimationActive={!isPrint && isAnimationActive}
+        dot={{ fill: CHART.line, r: 3, strokeWidth: 0 }}
+        activeDot={{ r: 5, fill: isDark ? '#0f1422' : '#fff', stroke: CHART.line, strokeWidth: 2 }}
+      />
+    </AreaChart>
+  )
+
   return (
-    <ChartShell title="PR Throughput" subtitle={`Weekly merges — ${PALETTE.orange.main} trend`}>
-      <ResponsiveContainer width="100%" height={300}>
-        <AreaChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-          <defs>
-            <linearGradient id="throughputGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={CHART.line} stopOpacity={isDark ? 0.35 : 0.45} />
-              <stop offset="100%" stopColor={CHART.line} stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke={chartStyles.gridColor} vertical={false} />
-          <XAxis dataKey="week" stroke={chartStyles.axisColor} tick={{ fontSize: 10, fill: chartStyles.textColor }} axisLine={false} tickLine={false} />
-          <YAxis stroke={chartStyles.axisColor} allowDecimals={false} tick={{ fontSize: 10, fill: chartStyles.textColor }} axisLine={false} tickLine={false} />
-          <Tooltip contentStyle={chartStyles.tooltipStyle} formatter={(value: number) => [`${value} PRs`, 'Merged']} />
-          <Legend wrapperStyle={chartStyles.legendStyle} formatter={renderColorLegend} iconType="circle" iconSize={6} />
-          <Area
-            type="monotone"
-            dataKey="prs"
-            name="Merged PRs"
-            stroke={CHART.line}
-            strokeWidth={2.5}
-            fill="url(#throughputGrad)"
-            isAnimationActive={isAnimationActive}
-            dot={{ fill: CHART.line, r: 3, strokeWidth: 0 }}
-            activeDot={{ r: 5, fill: isDark ? '#0f1422' : '#fff', stroke: CHART.line, strokeWidth: 2 }}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
+    <ChartShell title="PR Throughput" subtitle={`Weekly merges — ${PALETTE.orange.main} trend`} isPrint={isPrint}>
+      {isPrint ? chart : <ResponsiveContainer width="100%" height={300}>{chart}</ResponsiveContainer>}
     </ChartShell>
   )
 }

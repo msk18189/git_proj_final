@@ -1,10 +1,15 @@
 import csv
 import io
+import json
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import func, case, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.models import MLPrediction, PullRequest, Repository, PRReview, PRCommit, Contributor
+from services.module_analytics import (
+    IssueAnalytics, BranchAnalytics, ForkAnalytics, CICDAnalytics,
+    DiscussionAnalytics, ProjectAnalytics, RepoHealthAnalytics,
+)
 from services.filters import (
     PRFilterParams,
     ensure_utc,
@@ -659,56 +664,210 @@ class ExtendedAnalytics:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
     ) -> str:
+        data = await self.build_export_data(repo_id, days, author, state, start_date, end_date)
+        repo = data["repository"]
+
+        buf = io.StringIO()
+        w = csv.writer(buf)
+
+        self._write_csv_section(w, "Report Metadata", [
+            {"field": "report", "value": "PRISM GitHub Engineering Intelligence"},
+            {"field": "repository", "value": repo["full_name"]},
+            {"field": "generated_utc", "value": data["generated_at"]},
+            {"field": "filters", "value": json.dumps(data["filters"], sort_keys=True)},
+        ], ["field", "value"])
+
+        for section in data["sections"]:
+            self._write_csv_section(w, section["title"], section["rows"], section["columns"])
+
+        return buf.getvalue()
+
+    async def build_export_data(
+        self,
+        repo_id: int,
+        days: Optional[int] = None,
+        author: Optional[str] = None,
+        state: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> Dict[str, Any]:
         result = await self.db.execute(select(Repository).where(Repository.id == repo_id))
         repo = result.scalar_one_or_none()
         if not repo:
             raise ValueError("Repository not found")
 
-        kpi = await self.get_kpi_with_duration(repo_id, days, author, state, start_date, end_date)
-        contributors_res = await self.get_contributors_filtered(repo_id, limit=50, days=days, author=author, state=state, start_date=start_date, end_date=end_date)
-        contributors = contributors_res["data"]
-        oldest_res = await self.get_oldest_open_filtered(repo_id, limit=20, days=days, author=author, state=state, start_date=start_date, end_date=end_date)
-        oldest = oldest_res["data"]
-        stale_res = await self.get_stale_recommendations(repo_id)
-        stale = stale_res["data"]
-        risks_res = await self.get_pr_risk_panel(repo_id, limit=20)
-        risks = risks_res["data"]
+        filter_kw = {
+            "days": days,
+            "author": author,
+            "state": state,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
 
-        buf = io.StringIO()
-        w = csv.writer(buf)
+        kpi = await self.get_kpi_with_duration(repo_id, **filter_kw)
+        flow = await self.get_monthly_flow_filtered(repo_id, 12, **filter_kw)
+        throughput = await self.get_throughput_filtered(repo_id, 12, **filter_kw)
+        contributors = (await self.get_contributors_filtered(repo_id, limit=500, **filter_kw))["data"]
+        oldest = (await self.get_oldest_open_filtered(repo_id, limit=500, **filter_kw))["data"]
+        slowest = (await self.get_slowest_merged_filtered(repo_id, limit=500, **filter_kw))["data"]
+        stale = (await self.get_stale_recommendations(repo_id, limit=500))["data"]
+        risks = (await self.get_pr_risk_panel(repo_id, limit=500))["data"]
 
-        w.writerow(["GitHub PR Intelligence Report"])
-        w.writerow(["Repository", f"{repo.owner}/{repo.name}"])
-        w.writerow(["Generated", datetime.now(timezone.utc).isoformat()])
-        w.writerow([])
+        issue_analytics = IssueAnalytics(self.db)
+        branch_analytics = BranchAnalytics(self.db)
+        fork_analytics = ForkAnalytics(self.db)
+        cicd_analytics = CICDAnalytics(self.db)
+        discussion_analytics = DiscussionAnalytics(self.db)
+        project_analytics = ProjectAnalytics(self.db)
+        repo_health = await RepoHealthAnalytics(self.db).get_health_score(repo_id)
 
-        w.writerow(["KPI Summary"])
-        for key, val in kpi.items():
-            if not key.endswith("_display"):
-                w.writerow([key, val])
-        w.writerow([])
+        issues_summary = await issue_analytics.get_summary(repo_id)
+        issues_velocity = await issue_analytics.get_resolution_velocity(repo_id)
+        issues_priority = await issue_analytics.get_priority_distribution(repo_id)
+        issues = (await issue_analytics.get_issues_list(repo_id, page=1, limit=500))["data"]
+        stale_issues = (await issue_analytics.get_stale_issues(repo_id, page=1, limit=500))["data"]
 
-        w.writerow(["Contributors"])
-        w.writerow(["username", "total_prs", "merged_prs", "merge_rate", "avg_cycle_time"])
-        for c in contributors:
-            w.writerow([c["username"], c["total_prs"], c["merged_prs"], c["merge_rate"], c["avg_cycle_time"]])
-        w.writerow([])
+        branches_summary = await branch_analytics.get_summary(repo_id)
+        branches = (await branch_analytics.get_branches_list(repo_id, page=1, limit=500))["data"]
 
-        w.writerow(["Stale PR Alerts"])
-        w.writerow(["number", "title", "author", "age_days", "severity", "actions"])
-        for s in stale:
-            w.writerow([s["number"], s["title"], s["author"], s["age_days"], s["severity"], "; ".join(s["recommended_actions"])])
-        w.writerow([])
+        forks_summary = await fork_analytics.get_summary(repo_id)
+        forks_growth = await fork_analytics.get_growth_trend(repo_id)
+        forks = (await fork_analytics.get_forks_list(repo_id, page=1, limit=500))["data"]
 
-        w.writerow(["PR Risk Panel"])
-        w.writerow(["number", "title", "author", "risk_score", "bottleneck_probability", "predicted_delay_days"])
-        for r in risks:
-            w.writerow([r["number"], r["title"], r["author"], r["risk_score"], r["bottleneck_probability"], r["predicted_delay_days"]])
-        w.writerow([])
+        cicd_summary = await cicd_analytics.get_summary(repo_id)
+        workflow_breakdown = await cicd_analytics.get_workflow_breakdown(repo_id)
+        workflow_success_trend = await cicd_analytics.get_success_trend(repo_id, days=30)
+        workflow_runs = (await cicd_analytics.get_runs_list(repo_id, page=1, limit=500))["data"]
 
-        w.writerow(["Oldest Open PRs"])
-        w.writerow(["number", "title", "author", "age_days", "review_count"])
-        for o in oldest:
-            w.writerow([o["number"], o["title"], o["author"], o["age_days"], o["review_count"]])
+        discussions_summary = await discussion_analytics.get_summary(repo_id)
+        discussions_timeline = self._unwrap_rows(await discussion_analytics.get_activity_timeline(repo_id), "timeline")
+        discussions = (await discussion_analytics.get_discussions_list(repo_id, page=1, limit=500))["data"]
 
-        return buf.getvalue()
+        projects_summary = await project_analytics.get_summary(repo_id)
+        projects = (await project_analytics.get_projects_list(repo_id, page=1, limit=500))["data"]
+
+        sections = [
+            self._section("Repository Snapshot", [self._repo_dict(repo)], [
+                "full_name", "url", "visibility", "language", "stars", "watchers",
+                "forks_count", "default_branch", "last_synced_at", "sync_status",
+            ]),
+            self._section("Sync Coverage", [kpi], [
+                "expected_prs", "synced_prs", "expected_issues", "synced_issues",
+                "expected_forks", "synced_forks", "expected_workflows", "synced_workflows",
+            ]),
+            self._section("KPI Summary", [kpi], [
+                "total_prs", "open_prs", "merged_prs", "closed_not_merged_prs",
+                "stale_prs", "merge_rate", "avg_reviews_per_pr", "avg_cycle_time",
+                "median_cycle_time", "avg_wait_for_review", "avg_review_duration",
+            ]),
+            self._section("Monthly PR Flow", flow, ["month", "created", "merged", "closed", "open_at_end"]),
+            self._section("Weekly Throughput", throughput, ["week", "prs"]),
+            self._section("Contributors", contributors, [
+                "username", "type", "contributions", "contribution_percentage", "total_prs",
+                "merged_prs", "open_prs", "stale_prs", "merge_rate", "avg_cycle_time",
+                "avg_wait_for_review",
+            ]),
+            self._section("Oldest Open PRs", oldest, ["number", "title", "author", "created_at", "age_days", "review_count"]),
+            self._section("Slowest Merged PRs", slowest, [
+                "number", "title", "author", "cycle_time_days", "merged_at", "review_count", "files_changed",
+            ]),
+            self._section("Stale PR Alerts", stale, ["number", "title", "author", "age_days", "severity", "reasons", "recommended_actions"]),
+            self._section("PR Risk Panel", risks, [
+                "number", "title", "author", "risk_score", "bottleneck_probability",
+                "predicted_delay_days", "predicted_delay_display", "score_source",
+            ]),
+            self._section("Issue Summary", [issues_summary], list(issues_summary.keys())),
+            self._section("Issue Resolution Velocity", issues_velocity, ["month", "opened", "closed"]),
+            self._section("Issue Priority Distribution", issues_priority, ["priority", "count"]),
+            self._section("Issues", issues, ["number", "title", "state", "author", "labels", "age_days", "created_at", "closed_at", "comment_count"]),
+            self._section("Stale Issues", stale_issues, ["number", "title", "author", "age_days", "comment_count", "created_at"]),
+            self._section("Branch Summary", [branches_summary], list(branches_summary.keys())),
+            self._section("Branches", branches, ["name", "protected", "last_commit_author", "last_commit_at", "staleness_days"]),
+            self._section("Fork Summary", [forks_summary], list(forks_summary.keys())),
+            self._section("Fork Growth Trend", forks_growth, ["period", "count"]),
+            self._section("Forks", forks, ["full_name", "owner", "language", "stars", "forks", "pushed_at", "staleness_days", "activity"]),
+            self._section("CI/CD Summary", [cicd_summary], list(cicd_summary.keys())),
+            self._section("Workflow Breakdown", workflow_breakdown, ["name", "total_runs", "success", "failure", "success_rate", "avg_duration_minutes", "is_flaky"]),
+            self._section("Workflow Success Trend", workflow_success_trend, ["date", "success", "failure", "other"]),
+            self._section("Workflow Runs", workflow_runs, ["id", "name", "branch", "event", "status", "conclusion", "actor", "created_at", "duration_seconds"]),
+            self._section("Discussion Summary", [discussions_summary], list(discussions_summary.keys())),
+            self._section("Discussion Timeline", discussions_timeline, ["date", "activity"]),
+            self._section("Discussions", discussions, ["number", "title", "category", "state", "author", "answer_chosen", "comment_count", "reaction_count", "participant_count", "created_at"]),
+            self._section("Project Summary", [projects_summary], list(projects_summary.keys())),
+            self._section("Projects", projects, ["number", "name", "state", "creator", "project_type", "items_count", "open_items", "closed_items", "updated_at"]),
+            self._section("Repository Health", [repo_health], list(repo_health.keys())),
+        ]
+
+        return {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "filters": {k: v for k, v in filter_kw.items() if v is not None},
+            "repository": self._repo_dict(repo),
+            "kpi": kpi,
+            "flow": flow,
+            "throughput": throughput,
+            "contributors": contributors,
+            "oldest": oldest,
+            "slowest": slowest,
+            "stale": stale,
+            "risks": risks,
+            "sections": sections,
+        }
+
+    def _repo_dict(self, repo: Repository) -> Dict[str, Any]:
+        return {
+            "id": repo.id,
+            "owner": repo.owner,
+            "name": repo.name,
+            "full_name": repo.full_name,
+            "url": repo.url,
+            "visibility": repo.visibility,
+            "language": repo.language,
+            "stars": repo.stars,
+            "watchers": repo.watchers,
+            "forks_count": repo.forks_count,
+            "default_branch": repo.default_branch,
+            "sync_status": repo.sync_status,
+            "last_synced_at": repo.last_synced_at.isoformat() if repo.last_synced_at else None,
+        }
+
+    def _section(self, title: str, rows: Any, columns: List[str]) -> Dict[str, Any]:
+        safe_rows = self._unwrap_rows(rows)
+        return {"title": title, "columns": columns, "rows": safe_rows}
+
+    def _unwrap_rows(self, rows: Any, preferred_key: Optional[str] = None) -> List[Dict[str, Any]]:
+        if isinstance(rows, list):
+            return rows
+        if isinstance(rows, dict):
+            if preferred_key and isinstance(rows.get(preferred_key), list):
+                return rows[preferred_key]
+            for value in rows.values():
+                if isinstance(value, list):
+                    return value
+            return [rows]
+        return []
+
+    def _as_rows(self, value: Any) -> List[Dict[str, Any]]:
+        if isinstance(value, dict):
+            return [{"metric": k, "value": v} for k, v in value.items()]
+        if isinstance(value, list):
+            return value
+        return [{"metric": "value", "value": value}]
+
+    def _csv_cell(self, value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, (list, tuple, dict)):
+            value = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        text = str(value).replace("\r", " ").replace("\n", " ").strip()
+        if text.startswith(("=", "+", "-", "@", "\t")):
+            text = "'" + text
+        return text
+
+    def _write_csv_section(self, writer, title: str, rows: List[Dict[str, Any]], columns: List[str]) -> None:
+        writer.writerow([])
+        writer.writerow([self._csv_cell(title)])
+        writer.writerow(columns)
+        for row in rows:
+            if not isinstance(row, dict):
+                row = {"value": row}
+            writer.writerow([self._csv_cell(row.get(col)) for col in columns])

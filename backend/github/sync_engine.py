@@ -346,6 +346,9 @@ class SyncEngine:
             print(f"[SyncEngine] Rate limit hit. Gracefully downgrading and stopping sync: {e}")
             try:
                 await self.db.rollback()
+                self.repo = (await self.db.execute(
+                    select(Repository).where(Repository.id == self.repo.id)
+                )).scalar_one()
                 duration = time.time() - sync_start
                 self.repo.sync_status = "RATE_LIMITED"
                 self.repo.sync_mode = "partial"
@@ -363,14 +366,19 @@ class SyncEngine:
             print(f"[SyncEngine] Fatal error: {error_msg}")
             try:
                 await self.db.rollback()
+                self.repo = (await self.db.execute(
+                    select(Repository).where(Repository.id == self.repo.id)
+                )).scalar_one()
                 self.repo.sync_status = "FAILED"
                 self.repo.sync_error = error_msg
                 self.repo.error_message = error_msg
                 self.repo.sync_progress = f"Sync failed: {error_msg[:200]}"
                 await self.db.commit()
-            except Exception:
+            except Exception as db_err:
+                print(f"[SyncEngine] DB error during error status updates: {db_err}")
                 pass
             raise
+
 
     async def _mark_syncing(self, msg: str):
         self.repo.sync_status = "SYNCING"
@@ -417,21 +425,33 @@ class SyncEngine:
                 select(Repository).where(Repository.id == self.repo.id)
             )).scalar_one()
 
-            # Intercept flush to capture cursors and prevent writing/locking on Repository table
+            # Intercept flush to capture cursors
             original_flush = db.flush
             async def locked_flush(*args, **kwargs):
                 repos = [obj for obj in db if isinstance(obj, Repository)]
                 for r in repos:
                     if r.sync_cursors is not None:
                         merged_state["sync_cursors"] = r.sync_cursors
-                    db.expunge(r)
                 await original_flush(*args, **kwargs)
             db.flush = locked_flush
 
             original_commit = db.commit
             async def locked_commit():
-                await original_commit()
+                async with repo_write_lock:
+                    try:
+                        # Refresh repo_instance from database to get the latest sync_cursors
+                        await db.refresh(repo_instance, ["sync_cursors"])
+                        
+                        db_cursors = json.loads(repo_instance.sync_cursors) if repo_instance.sync_cursors else {}
+                        local_cursors = json.loads(merged_state["sync_cursors"]) if merged_state["sync_cursors"] else {}
+                        
+                        db_cursors.update(local_cursors)
+                        repo_instance.sync_cursors = json.dumps(db_cursors)
+                    except Exception as err:
+                        print(f"[SyncEngine] Error merging cursors in locked_commit: {err}")
+                    await original_commit()
             db.commit = locked_commit
+
             
             try:
                 # Resolve bound sync method

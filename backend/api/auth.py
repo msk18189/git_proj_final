@@ -1,5 +1,7 @@
 import os
 import re
+import hmac
+import hashlib
 import jwt
 from datetime import datetime, timezone, timedelta
 import bcrypt
@@ -106,8 +108,20 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return encoded_jwt, expires_in
 
 def create_refresh_token_value() -> str:
-    """Generate a random refresh token value (stored in database)."""
+    """Generate a random refresh token value returned once to the client."""
     return secrets.token_urlsafe(32)
+
+def hash_refresh_token(token: str) -> str:
+    """Create a deterministic keyed hash for DB lookup without storing the token."""
+    digest = hmac.new(
+        JWT_SECRET.encode("utf-8"),
+        token.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"sha256${digest}"
+
+def is_hashed_refresh_token(value: str) -> bool:
+    return value.startswith("sha256$")
 
 def decode_access_token(token: str) -> Optional[dict]:
     try:

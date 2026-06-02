@@ -296,34 +296,98 @@ textarea {
 /* Print Styles for PDF Export */
 @media print {
   @page {
-    margin: 10mm;
-    size: auto;
+    margin: 15mm 15mm 15mm 15mm;
+    size: A4 portrait;
   }
   body {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
-    background-color: #faf6f0 !important;
+    background-color: #f8fafc !important;
+    color: #1e293b !important;
   }
   .printable-report {
-    background-color: #faf6f0 !important;
+    background-color: #f8fafc !important;
+    font-size: 12.5px !important;
+    padding: 10px 15px !important;
+  }
+  .printable-report h1 {
+    font-size: 22px !important;
+    margin-bottom: 6px !important;
+  }
+  .printable-report h2 {
+    font-size: 16px !important;
+    margin-bottom: 6px !important;
+  }
+  .printable-report h3 {
+    font-size: 13px !important;
+    margin-bottom: 4px !important;
+  }
+  .printable-report p, 
+  .printable-report span,
+  .printable-report div {
+    font-size: 11px !important;
+  }
+  .printable-report table {
+    font-size: 10.5px !important;
+  }
+  .printable-report th,
+  .printable-report td {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+    padding-left: 6px !important;
+    padding-right: 6px !important;
+  }
+  .printable-report .report-page {
+    margin-bottom: 10px !important;
+    padding-top: 2px !important;
+    padding-bottom: 2px !important;
+  }
+  .printable-report .space-y-8 > :not([hidden]) ~ :not([hidden]),
+  .printable-report .space-y-6 > :not([hidden]) ~ :not([hidden]),
+  .printable-report .space-y-4 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 6px !important;
+    margin-bottom: 0px !important;
+  }
+  .printable-report .mt-6,
+  .printable-report .mt-8,
+  .printable-report .mt-12 {
+    margin-top: 6px !important;
+  }
+  .printable-report .mb-6,
+  .printable-report .mb-8,
+  .printable-report .mb-10,
+  .printable-report .mb-12 {
+    margin-bottom: 6px !important;
   }
   .avoid-break {
-    page-break-inside: avoid;
-    break-inside: avoid;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
   .avoid-break-before {
-    page-break-before: always;
-    break-before: always;
+    page-break-before: always !important;
+    break-before: always !important;
   }
   .report-page {
-    page-break-after: always;
-    break-after: always;
+    page-break-after: always !important;
+    break-after: always !important;
   }
   .report-page:last-child {
-    page-break-after: auto;
-    break-after: auto;
+    page-break-after: auto !important;
+    break-after: auto !important;
   }
   ::-webkit-scrollbar {
     display: none;
+  }
+  /* Ensure backgrounds and borders of tailwind utilities print properly */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* Hide Next.js Dev Overlay and Portals from PDF print */
+  nextjs-portal,
+  #nextjs-portal,
+  [data-nextjs-toast],
+  [data-nextjs-dialog-overlay] {
+    display: none !important;
   }
 }

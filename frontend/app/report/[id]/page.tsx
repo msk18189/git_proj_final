@@ -1,15 +1,27 @@
 import React from 'react'
 import {
+  ReportReadyTrigger,
   ExecutiveSummaryReport,
   KPIGridReport,
   ThroughputReport,
   ContributorAnalyticsReport,
   StalePRTableReport,
   BottleneckPRReport,
-  AIInsightsReport
+  AIInsightsReport,
+  IssuesReportSection,
+  BranchesAndCICDSection,
+  ForksAndDiscussionsSection,
+  ProjectsAndHealthSection,
+  OldestPRsTable,
+  PRRiskTable,
+  IssuesListTable,
+  BranchesListTable,
+  WorkflowRunsListTable,
+  ForksListTable,
+  DiscussionsListTable,
+  ProjectsListTable,
 } from '@/components/report/ReportComponents'
 
-// Define the shape of search params
 interface PageProps {
   params: { id: string }
   searchParams: { [key: string]: string | string[] | undefined }
@@ -17,103 +29,152 @@ interface PageProps {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-// Helper function to build query string
-function buildQueryString(searchParams: { [key: string]: string | string[] | undefined }) {
-  const params = new URLSearchParams()
-  for (const [key, value] of Object.entries(searchParams)) {
-    if (value && typeof value === 'string') {
-      params.append(key, value)
-    }
-  }
-  const qs = params.toString()
-  return qs ? `?${qs}` : ''
+function qs(obj: Record<string, any>) {
+  const p = new URLSearchParams()
+  Object.entries(obj).forEach(([k, v]) => { if (v != null) p.set(k, String(v)) })
+  const s = p.toString()
+  return s ? `?${s}` : ''
 }
 
 export default async function ReportPage({ params, searchParams }: PageProps) {
   const id = Number(params.id)
-  
-  if (!id) {
-    return <div className="p-10 text-center text-rose-500">Invalid Repository ID</div>
-  }
+  if (!id) return <div className="p-10 text-rose-500">Invalid Repository ID</div>
 
   const token = typeof searchParams.token === 'string' ? searchParams.token : ''
   const headers: HeadersInit = { 'Content-Type': 'application/json' }
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
-  }
+  if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const fetchApi = async (path: string, extraParams: Record<string, any> = {}) => {
-    // Merge searchParams and extraParams
-    const qsObj = { ...searchParams, ...extraParams }
-    delete qsObj.token // don't send token in query string to backend if possible, or it's fine
-    
-    const url = `${API_BASE}${path}${buildQueryString(qsObj)}`
-    const res = await fetch(url, { headers, cache: 'no-store' })
-    if (!res.ok) {
-      // If it fails, return null or handle gracefully so the report can still partially render
-      console.error(`Failed to fetch ${url}: ${res.status} ${res.statusText}`)
-      return null
+  const get = async (path: string, extra: Record<string, any> = {}) => {
+    const qsObj: Record<string, any> = {}
+    for (const [k, v] of Object.entries(searchParams)) {
+      if (k !== 'token' && typeof v === 'string') qsObj[k] = v
     }
-    return res.json()
+    Object.assign(qsObj, extra)
+    try {
+      const res = await fetch(`${API_BASE}${path}${qs(qsObj)}`, { headers, cache: 'no-store' })
+      if (!res.ok) return null
+      return res.json()
+    } catch { return null }
   }
 
-  try {
-    // Fetch all data in parallel
-    const [
-      status, kpi, flowRes, throughputRes, contributorsRes,
-      staleRes, slowestRes, risksRes
-    ] = await Promise.all([
-      fetchApi(`/api/sync-status/${id}`),
-      fetchApi(`/api/kpi/${id}`),
-      fetchApi(`/api/monthly-flow/${id}`, { months: 6 }),
-      fetchApi(`/api/throughput/${id}`, { weeks: 8 }),
-      fetchApi(`/api/contributor-activity/${id}`, { page: 1, limit: 15 }),
-      fetchApi(`/api/stale-alerts/${id}`, { page: 1, limit: 10 }),
-      fetchApi(`/api/slowest-prs/${id}`, { page: 1, limit: 10 }),
-      fetchApi(`/api/pr-risk/${id}`, { page: 1, limit: 15 })
-    ])
+  const [
+    status, kpi, flow, throughput, contributors,
+    stale, slowest, prRisk, oldestPRs,
+    issueAnalytics, staleIssues,
+    branchAnalytics,
+    cicdAnalytics,
+    forksAnalytics,
+    discussionAnalytics,
+    discussionTimeline,
+    projectsAnalytics,
+    repoHealth,
+    issuesListRaw,
+    branchesListRaw,
+    workflowRunsListRaw,
+    forksListRaw,
+    discussionsListRaw,
+    projectsListRaw,
+  ] = await Promise.all([
+    get(`/api/sync-status/${id}`),
+    get(`/api/kpi/${id}`),
+    get(`/api/monthly-flow/${id}`, { months: 6 }),
+    get(`/api/throughput/${id}`, { weeks: 8 }),
+    get(`/api/contributor-activity/${id}`, { page: 1, limit: 20 }),
+    get(`/api/stale-alerts/${id}`, { page: 1, limit: 15 }),
+    get(`/api/slowest-prs/${id}`, { page: 1, limit: 15 }),
+    get(`/api/pr-risk/${id}`, { page: 1, limit: 20 }),
+    get(`/api/oldest-prs/${id}`, { page: 1, limit: 15 }),
+    get(`/api/issues/analytics/${id}`),
+    get(`/api/issues/stale/${id}`, { page: 1, limit: 15 }),
+    get(`/api/branches/analytics/${id}`),
+    get(`/api/cicd/analytics/${id}`),
+    get(`/api/forks/analytics/${id}`),
+    get(`/api/discussions/analytics/${id}`),
+    get(`/api/discussions/timeline/${id}`),
+    get(`/api/projects/analytics/${id}`),
+    get(`/api/repo-health/${id}`),
+    get(`/api/issues/${id}`, { page: 1, limit: 15 }),
+    get(`/api/branches/${id}`, { page: 1, limit: 15 }),
+    get(`/api/workflow-runs/${id}`, { page: 1, limit: 15 }),
+    get(`/api/forks/${id}`, { page: 1, limit: 15 }),
+    get(`/api/discussions/${id}`, { page: 1, limit: 15 }),
+    get(`/api/projects/${id}`, { page: 1, limit: 15 }),
+  ])
 
-    const flow = flowRes
-    const throughput = throughputRes
-    const contributors = contributorsRes?.data || []
-    const stale = staleRes?.data || []
-    const slowest = slowestRes?.data || []
+  const contribList = contributors?.data || []
+  const staleList = stale?.data || []
+  const slowestList = slowest?.data || []
+  const staleIssueList = staleIssues?.data || []
+  const riskList = prRisk?.data || []
+  const oldestList = oldestPRs?.data || []
+  const issuesList = issuesListRaw?.data || []
+  const branchesList = branchesListRaw?.data || []
+  const workflowRunsList = workflowRunsListRaw?.data || []
+  const forksList = forksListRaw?.data || []
+  const discussionsList = discussionsListRaw?.data || []
+  const projectsList = projectsListRaw?.data || []
 
-    return (
-      <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-8 md:p-12 max-w-5xl mx-auto printable-report">
-        
-        {/* PAGE 1: Executive Summary & KPIs */}
-        <div className="report-page">
-          <ExecutiveSummaryReport status={status} />
-          <KPIGridReport kpi={kpi} />
-        </div>
-
-        {/* PAGE 2: Flow & Contributor Analytics */}
-        <div className="report-page">
-          <ThroughputReport flow={flow} throughput={throughput} />
-          <ContributorAnalyticsReport contributors={contributors} />
-        </div>
-
-        {/* PAGE 3: Operational Tables (Oldest/Stale/Bottleneck) */}
-        <div className="report-page mt-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <StalePRTableReport stale={stale} />
-            <BottleneckPRReport slowest={slowest} />
-          </div>
-        </div>
-
-        {/* PAGE 4: AI Insights & Risks */}
-        <div className="report-page">
-          <AIInsightsReport kpi={kpi} stale={stale} />
-        </div>
-
+  return (
+    <div className="printable-report min-h-screen bg-[#ffffff] text-[#1e293b] p-8 font-sans relative">
+      
+      {/* PAGE 1: Overview & Executive Summary */}
+      <div className="report-page py-6">
+        <ExecutiveSummaryReport status={status} kpi={kpi} repoHealth={repoHealth} />
+        <KPIGridReport kpi={kpi} />
       </div>
-    )
-  } catch (err: any) {
-    return (
-      <div className="p-10 text-center font-mono text-sm text-rose-500">
-        Error generating report: {err.message}
+
+      {/* PAGE 2: Throughput & Contributor Analytics */}
+      <div className="report-page py-6">
+        <h2 className="text-xl font-black text-primary mb-6">Throughput & Contributor Analytics</h2>
+        <ThroughputReport flow={flow} throughput={throughput} />
+        <ContributorAnalyticsReport contributors={contribList} />
       </div>
-    )
-  }
+
+      {/* PAGE 3: Pull Request Backlog & Insights */}
+      <div className="report-page py-6">
+        <h2 className="text-xl font-black text-primary mb-6">Pull Request Analysis</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <StalePRTableReport stale={staleList} />
+          <BottleneckPRReport slowest={slowestList} />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <OldestPRsTable oldestList={oldestList} />
+          <PRRiskTable riskList={riskList} />
+        </div>
+        <AIInsightsReport kpi={kpi} stale={staleList} />
+      </div>
+
+      {/* PAGE 4: Issues Analytics */}
+      <div className="report-page py-6">
+        <IssuesReportSection issueAnalytics={issueAnalytics} staleIssueList={staleIssueList} status={status} />
+        <div className="mt-8">
+          <IssuesListTable issuesList={issuesList} />
+        </div>
+      </div>
+
+      {/* PAGE 5: Branches & CI/CD Analytics */}
+      <div className="report-page py-6 space-y-6">
+        <BranchesAndCICDSection branchAnalytics={branchAnalytics} cicdAnalytics={cicdAnalytics} status={status} />
+        <BranchesListTable branchesList={branchesList} />
+        <WorkflowRunsListTable workflowRunsList={workflowRunsList} />
+      </div>
+
+      {/* PAGE 6: Forks & Discussions */}
+      <div className="report-page py-6 space-y-6">
+        <ForksAndDiscussionsSection forksAnalytics={forksAnalytics} discussionAnalytics={discussionAnalytics} discussionTimeline={discussionTimeline} status={status} />
+        <ForksListTable forksList={forksList} />
+        <DiscussionsListTable discussionsList={discussionsList} />
+      </div>
+
+      {/* PAGE 7: Projects & Repository Health */}
+      <div className="report-page py-6">
+        <ProjectsAndHealthSection projectsAnalytics={projectsAnalytics} repoHealth={repoHealth} status={status} />
+        <div className="mt-8">
+          <ProjectsListTable projectsList={projectsList} />
+        </div>
+      </div>
+
+      <ReportReadyTrigger />
+    </div>
+  )
 }

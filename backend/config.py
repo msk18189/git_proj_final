@@ -23,6 +23,7 @@ ML_KMEANS_CLUSTERS = int(os.getenv("ML_KMEANS_CLUSTERS", "3"))
 # ── API Server Configuration (Environment-Driven) ──
 API_HOST = os.getenv("API_HOST", "127.0.0.1")
 API_PORT = int(os.getenv("API_PORT", "8000"))
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
 _api_reload_raw = os.getenv("API_RELOAD", "false").lower().strip()
 if _api_reload_raw not in ("true", "false"):

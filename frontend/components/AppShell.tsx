@@ -63,6 +63,7 @@ interface SyncStatus {
   total_projects: number
   rate_limit_remaining: number | null
   rate_limit_limit: number | null
+  next_sync_at?: string | null
 }
 
 interface AppShellProps {

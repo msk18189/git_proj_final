@@ -3,11 +3,11 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from database.database import get_db
-from database.models import Repository, PullRequest, Contributor, User, RefreshToken, MLPrediction
+from database.models import Repository, PullRequest, Contributor, User, RefreshToken, MLPrediction, UserRepository
 from api.auth import (
     UserSignup, UserLogin, TokenResponse, RefreshTokenRequest,
     hash_password, verify_password, create_access_token, create_refresh_token_value,
-    REFRESH_TOKEN_EXPIRE_DAYS
+    REFRESH_TOKEN_EXPIRE_DAYS, hash_refresh_token, is_hashed_refresh_token
 )
 from ml.models import MLModels
 from services.data_processor import DataProcessor, parse_github_repo_url, normalize_github_url
@@ -22,11 +22,32 @@ from typing import Optional
 import io
 import threading
 from playwright.async_api import async_playwright
-from api.dependencies import get_current_user, get_current_user_optional
+from api.dependencies import get_current_user, get_current_user_optional, require_repo_access
 from api.rate_limiter import limiter
 import config
 
 router = APIRouter()
+
+def _cookie_secure() -> bool:
+    return bool(getattr(config, "COOKIE_SECURE", False))
+
+def _set_auth_cookies(response: Response, access_token: str):
+    response.set_cookie(
+        key="accessToken",
+        value=access_token,
+        httponly=True,
+        secure=_cookie_secure(),
+        samesite="strict",
+        path="/",
+    )
+    response.set_cookie(
+        key="isAuthenticated",
+        value="true",
+        httponly=False,
+        secure=_cookie_secure(),
+        samesite="strict",
+        path="/",
+    )
 
 def normalize_telemetry_counts(synced: int, expected: int) -> tuple:
 
@@ -108,14 +129,13 @@ async def signup(request: Request, payload: UserSignup, response: Response, db: 
     refresh_token_expires = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     refresh_token = RefreshToken(
         user_id=new_user.id,
-        token_value=refresh_token_value,
+        token_value=hash_refresh_token(refresh_token_value),
         expires_at=refresh_token_expires
     )
     db.add(refresh_token)
     await db.commit()
     
-    response.set_cookie(key="accessToken", value=access_token, httponly=True, secure=True, samesite="strict", path="/")
-    response.set_cookie(key="isAuthenticated", value="true", httponly=False, secure=True, samesite="strict", path="/")
+    _set_auth_cookies(response, access_token)
     
     return TokenResponse(
         access_token=access_token,
@@ -149,14 +169,13 @@ async def login(request: Request, payload: UserLogin, response: Response, db: As
     refresh_token_expires = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     refresh_token = RefreshToken(
         user_id=user.id,
-        token_value=refresh_token_value,
+        token_value=hash_refresh_token(refresh_token_value),
         expires_at=refresh_token_expires
     )
     db.add(refresh_token)
     await db.commit()
     
-    response.set_cookie(key="accessToken", value=access_token, httponly=True, secure=True, samesite="strict", path="/")
-    response.set_cookie(key="isAuthenticated", value="true", httponly=False, secure=True, samesite="strict", path="/")
+    _set_auth_cookies(response, access_token)
     
     return TokenResponse(
         access_token=access_token,
@@ -175,12 +194,23 @@ async def refresh_access_token(payload: RefreshTokenRequest, response: Response,
     - Optionally rotates the refresh token (issues a new one)
     """
     # Find the refresh token in the database
+    incoming_token_hash = hash_refresh_token(payload.refresh_token)
     result = await db.execute(
         select(RefreshToken).where(
-            (RefreshToken.token_value == payload.refresh_token) & (RefreshToken.revoked == False)
+            (RefreshToken.token_value == incoming_token_hash) & (RefreshToken.revoked == False)
         )
     )
     refresh_token = result.scalar_one_or_none()
+
+    if not refresh_token:
+        result = await db.execute(
+            select(RefreshToken).where(
+                (RefreshToken.token_value == payload.refresh_token) & (RefreshToken.revoked == False)
+            )
+        )
+        refresh_token = result.scalar_one_or_none()
+        if refresh_token and not is_hashed_refresh_token(refresh_token.token_value):
+            refresh_token.token_value = incoming_token_hash
     
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Invalid or revoked refresh token.")
@@ -217,14 +247,13 @@ async def refresh_access_token(payload: RefreshTokenRequest, response: Response,
     # Create the new refresh token
     new_refresh_token = RefreshToken(
         user_id=user.id,
-        token_value=new_refresh_token_value,
+        token_value=hash_refresh_token(new_refresh_token_value),
         expires_at=new_refresh_token_expires
     )
     db.add(new_refresh_token)
     await db.commit()
     
-    response.set_cookie(key="accessToken", value=access_token, httponly=True, secure=True, samesite="strict", path="/")
-    response.set_cookie(key="isAuthenticated", value="true", httponly=False, secure=True, samesite="strict", path="/")
+    _set_auth_cookies(response, access_token)
     
     return TokenResponse(
         access_token=access_token,
@@ -249,8 +278,8 @@ async def logout(
         )
         await db.commit()
         
-    response.delete_cookie(key="accessToken", path="/", secure=True, httponly=True, samesite="strict")
-    response.delete_cookie(key="isAuthenticated", path="/", secure=True, samesite="strict")
+    response.delete_cookie(key="accessToken", path="/", secure=_cookie_secure(), httponly=True, samesite="strict")
+    response.delete_cookie(key="isAuthenticated", path="/", secure=_cookie_secure(), samesite="strict")
     return {"message": "Logged out"}
 
 @router.get("/api/auth/me")
@@ -449,10 +478,21 @@ async def verify_repository(request: Request, payload: RepositoryRequest, db: As
 
 
 @router.get("/api/repositories")
-async def get_repositories(db: AsyncSession = Depends(get_db)):
-    """List all analyzed repositories with module record counts."""
+async def get_repositories(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List repositories visible to the current user."""
     try:
-        result = await db.execute(select(Repository))
+        result = await db.execute(
+            select(Repository)
+            .outerjoin(UserRepository, UserRepository.repo_id == Repository.id)
+            .where(
+                (Repository.visibility == "public") |
+                (UserRepository.user_id == current_user.id)
+            )
+            .distinct()
+        )
         repos = result.scalars().all()
         res = []
         for r in repos:
@@ -1025,8 +1065,10 @@ async def export_report(
     repo_id: int, days: Optional[int] = None, author: Optional[str] = None,
     state: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     try:
+        await require_repo_access(repo_id, current_user, db)
         ext = ExtendedAnalytics(db)
         csv_content = await ext.build_export_csv(repo_id, days, author, state, start_date, end_date)
         return StreamingResponse(
@@ -1035,7 +1077,7 @@ async def export_report(
             headers={"Content-Disposition": f"attachment; filename=prism_report_{repo_id}.csv"},
         )
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/api/export-pdf/{repo_id}")
@@ -1043,103 +1085,99 @@ async def export_report_pdf(
     repo_id: int, days: Optional[int] = None, author: Optional[str] = None,
     state: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    """Generate a comprehensive PDF report with KPI cards, charts, and tables."""
+    """Generate a comprehensive PDF report by rendering the frontend UI page via Playwright."""
     try:
-        result = await db.execute(select(Repository).where(Repository.id == repo_id))
-        repo = result.scalar_one_or_none()
-        if not repo:
-            raise ValueError("Repository not found")
+        repo = await require_repo_access(repo_id, current_user, db)
 
-        # Fetch all analytics data
-        ext = ExtendedAnalytics(db)
+        # Build the frontend URL
+        frontend_base = "http://localhost:3000"
+        report_url = f"{frontend_base}/report/{repo_id}"
 
-        kpi = None
-        flow = []
-        throughput = []
-        contributors = []
-        stale = []
-        slowest = []
-        oldest = []
+        # Build query parameters
+        import urllib.parse
+        params = []
+        if days: params.append(f"days={days}")
+        if author: params.append(f"author={urllib.parse.quote(author)}")
+        if state: params.append(f"state={urllib.parse.quote(state)}")
+        if start_date: params.append(f"start_date={urllib.parse.quote(start_date)}")
+        if end_date: params.append(f"end_date={urllib.parse.quote(end_date)}")
 
+        # Pass a token for authentication if current_user exists
+        if current_user:
+            access_token, _ = create_access_token({"sub": current_user.username, "email": current_user.email})
+            params.append(f"token={access_token}")
+
+        if params:
+            report_url += "?" + "&".join(params)
+
+        print(f"[PDF Export] Rendering UI page via Playwright: {report_url}")
+
+        import sys
+        import asyncio
+        import httpx
+        from playwright.sync_api import sync_playwright
+
+        # ── Step 1: Pre-warm Next.js so the page is compiled before Playwright visits ──
+        # On first request, Next.js dev server compiles the route which can take 30-60s.
+        # We hit it with httpx (no timeout) so it's ready when Playwright loads it.
         try:
-            kpi = await ext.get_kpi_with_duration(
-                repo_id, days, author, state, start_date, end_date
-            )
-        except Exception:
-            pass
+            print(f"[PDF Export] Pre-warming Next.js route: {report_url}")
+            async with httpx.AsyncClient(timeout=None, follow_redirects=True) as warmup_client:
+                warmup_resp = await warmup_client.get(report_url)
+                print(f"[PDF Export] Pre-warm complete: HTTP {warmup_resp.status_code}")
+        except Exception as warmup_err:
+            print(f"[PDF Export] Pre-warm warning (non-fatal): {warmup_err}")
 
-        try:
-            flow_res = await ext.get_monthly_flow_filtered(
-                repo_id, 6, days=days, author=author,
-                state=state, start_date=start_date, end_date=end_date
-            )
-            flow = flow_res if isinstance(flow_res, list) else []
-        except Exception:
-            pass
+        # ── Step 2: Playwright captures PDF from the now-compiled page ──
+        def capture_pdf_sync(url, result):
+            try:
+                if sys.platform == "win32":
+                    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
-        try:
-            tp_res = await ext.get_throughput_filtered(
-                repo_id, 8, days=days, author=author,
-                state=state, start_date=start_date, end_date=end_date
-            )
-            throughput = tp_res if isinstance(tp_res, list) else []
-        except Exception:
-            pass
+                with sync_playwright() as p:
+                    # Set no-timeout at context level (most reliable way on Windows)
+                    browser = p.chromium.launch(headless=True)
+                    ctx = browser.new_context()
+                    ctx.set_default_navigation_timeout(0)
+                    ctx.set_default_timeout(0)
+                    page = ctx.new_page()
 
-        try:
-            contrib_res = await ext.get_contributors_filtered(
-                repo_id, page=1, limit=20, days=days,
-                author=author, state=state, start_date=start_date, end_date=end_date
-            )
-            contributors = contrib_res.get("data", []) if contrib_res else []
-        except Exception:
-            pass
+                    page.set_viewport_size({"width": 1200, "height": 1600})
 
-        try:
-            stale_res = await ext.get_stale_recommendations(repo_id, page=1, limit=15)
-            stale = stale_res.get("data", []) if stale_res else []
-        except Exception:
-            pass
+                    # Page is already compiled — navigation will be fast now
+                    page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-        try:
-            slow_res = await ext.get_slowest_merged_filtered(
-                repo_id, page=1, limit=15, days=days, author=author,
-                start_date=start_date, end_date=end_date
-            )
-            slowest = slow_res.get("data", []) if slow_res else []
-        except Exception:
-            pass
+                    # Wait for client-side ReportReadyTrigger to signal rendering complete
+                    try:
+                        page.wait_for_selector('html[data-pdf-ready="true"]', timeout=30000)
+                    except Exception as wait_err:
+                        print(f"[PDF Export] data-pdf-ready not detected, proceeding: {wait_err}")
 
-        try:
-            oldest_res = await ext.get_oldest_open_filtered(
-                repo_id, page=1, limit=20, days=days, author=author,
-                start_date=start_date, end_date=end_date
-            )
-            oldest = oldest_res.get("data", []) if oldest_res else []
-        except Exception:
-            pass
+                    # Capture the PDF with print backgrounds preserved
+                    pdf_data = page.pdf(
+                        format="A4",
+                        print_background=True,
+                        margin={"top": "10mm", "bottom": "10mm", "left": "10mm", "right": "10mm"},
+                        prefer_css_page_size=False
+                    )
+                    browser.close()
+                    result["pdf_bytes"] = pdf_data
+            except Exception as thread_err:
+                result["error"] = thread_err
 
-        try:
-            risk_res = await ext.get_pr_risk_panel(repo_id, page=1, limit=15)
-            risks = risk_res.get("data", []) if risk_res else []
-        except Exception:
-            risks = []
+        pdf_result = {}
+        # Run blocking Playwright in thread pool — keeps Uvicorn event loop free
+        # so the pre-warm httpx request above can be served concurrently.
+        await asyncio.to_thread(capture_pdf_sync, report_url, pdf_result)
 
-        # Generate PDF using reportlab
-        from services.pdf_generator import generate_pdf_report
-        pdf_bytes = generate_pdf_report(
-            repo=repo,
-            kpi=kpi,
-            flow=flow,
-            throughput=throughput,
-            contributors=contributors,
-            stale=stale,
-            slowest=slowest,
-            oldest=oldest,
-            risks=risks,
-        )
+        if "error" in pdf_result:
+            raise pdf_result["error"]
+        if "pdf_bytes" not in pdf_result:
+            raise RuntimeError("PDF generation failed: browser returned no data")
 
+        pdf_bytes = pdf_result["pdf_bytes"]
         filename = f"prism_report_{repo.owner}_{repo.name}.pdf"
         return StreamingResponse(
             io.BytesIO(pdf_bytes),
