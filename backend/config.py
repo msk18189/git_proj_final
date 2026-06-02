@@ -10,6 +10,10 @@ SYNC_BATCH_SIZE = int(os.getenv("SYNC_BATCH_SIZE", "300"))
 SYNC_RATE_LIMIT_BUFFER = int(os.getenv("SYNC_RATE_LIMIT_BUFFER", "50"))
 SYNC_INTERVAL_MINUTES = int(os.getenv("SYNC_INTERVAL_MINUTES", "60"))
 
+# ── Caching Configuration ──
+REDIS_CACHE_URL = os.getenv("REDIS_CACHE_URL", os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"))
+
+
 # ── Stale Resource Thresholds (Environment-Driven) ──
 STALE_PR_DAYS = int(os.getenv("STALE_PR_DAYS", "30"))
 STALE_ISSUE_DAYS = int(os.getenv("STALE_ISSUE_DAYS", "30"))
@@ -68,7 +72,19 @@ print(f"[Config] API Server: reload={API_RELOAD}, workers={API_WORKERS}")
 
 _JWT_SECRET_MIN_LENGTH = 32
 
+# ── AWS Secrets Manager Integration (Mock/Fallback) ──
+USE_AWS_SECRETS = os.getenv("USE_AWS_SECRETS", "false").lower() == "true"
+
+def get_aws_secret(secret_name: str) -> str:
+    """Mock implementation to fetch a secret from AWS Secrets Manager."""
+    # In production, implement boto3.client('secretsmanager').get_secret_value(SecretId=secret_name)
+    print(f"[AWS Secrets] Fetching {secret_name} from Cloud Secrets Manager (Mock)...")
+    return "MOCK_AWS_SECRET_VALUE_FETCHED_FROM_CLOUD_" + secret_name
+
 _jwt_secret_raw = os.getenv("JWT_SECRET")
+
+if USE_AWS_SECRETS and not _jwt_secret_raw:
+    _jwt_secret_raw = get_aws_secret("prism/jwt_secret")
 
 if _jwt_secret_raw is None:
     raise EnvironmentError(
@@ -82,7 +98,7 @@ if _jwt_secret_raw.strip() == "":
         "Provide a strong random secret of at least 32 characters."
     )
 
-if len(_jwt_secret_raw.strip()) < _JWT_SECRET_MIN_LENGTH:
+if len(_jwt_secret_raw.strip()) < _JWT_SECRET_MIN_LENGTH and not USE_AWS_SECRETS:
     raise ValueError(
         f"[FATAL] JWT_SECRET must be at least {_JWT_SECRET_MIN_LENGTH} characters long. "
         f"Current length: {len(_jwt_secret_raw.strip())} characters. "

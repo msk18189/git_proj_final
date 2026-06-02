@@ -660,7 +660,7 @@ function DashboardContent() {
           )}
 
           {/* Repository Status / Overview Card */}
-          {syncStatus && (
+          {activeSection === 'overview' && syncStatus && (
             <RepositoryStatusPanel
               repoLabel={repoLabel}
               syncStatus={syncStatus as any}

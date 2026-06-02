@@ -12,6 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.requests import Request as StarletteRequest
+from starlette.middleware.base import BaseHTTPMiddleware
+import json
+import logging
 from api.rate_limiter import limiter
 from api.routes import router
 from database.database import init_db
@@ -62,6 +65,40 @@ async def add_security_headers(request: Request, call_next):
     if request.url.scheme == "https":
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
+
+class SecureLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # We don't log the body here because reading request.body() consumes the stream,
+        # but we can sanitize the URL and headers to prevent data leakage.
+        
+        # Redact Authorization header
+        auth_header = request.headers.get("Authorization")
+        if auth_header:
+            request.scope["headers"] = [
+                (k, b"REDACTED" if k == b"authorization" else v)
+                for k, v in request.scope["headers"]
+            ]
+        
+        # Redact github_token query parameter if present (though we stopped using query params, just in case)
+        query_string = request.scope.get("query_string", b"").decode("utf-8")
+        if "github_token=" in query_string:
+            safe_query = []
+            for param in query_string.split("&"):
+                if param.startswith("github_token="):
+                    safe_query.append("github_token=REDACTED")
+                else:
+                    safe_query.append(param)
+            request.scope["query_string"] = "&".join(safe_query).encode("utf-8")
+            
+        try:
+            response = await call_next(request)
+            return response
+        except Exception as e:
+            # Prevent stack traces with sensitive locals from spilling into output
+            logging.getLogger("uvicorn.error").error(f"Request failed: {str(e)[:200]}")
+            raise
+
+app.add_middleware(SecureLoggingMiddleware)
 
 # CORS middleware
 app.add_middleware(

@@ -22,6 +22,16 @@ from services.filters import (
 from services.analytics import AnalyticsService, _ensure_utc, _iso_week_key, _month_key
 from services.analytics import _month_range, _format_month_label, _week_range, _week_label
 
+import redis.asyncio as aioredis
+import hashlib
+from config import REDIS_CACHE_URL
+
+redis_client = None
+try:
+    redis_client = aioredis.from_url(REDIS_CACHE_URL, decode_responses=True)
+except Exception as e:
+    print(f"[Redis Config] Failed to initialize Redis cache client: {e}")
+
 def _filters_from_params(
     days: Optional[int] = None,
     author: Optional[str] = None,
@@ -84,6 +94,18 @@ class ExtendedAnalytics:
         end_date: Optional[str] = None,
     ) -> Dict[str, Any]:
         filters = _filters_from_params(days, author, state, start_date, end_date)
+        
+        cache_key = None
+        if redis_client:
+            filter_str = f"{days}_{author}_{state}_{start_date}_{end_date}"
+            cache_key = f"prism:kpi:{repo_id}:{hashlib.md5(filter_str.encode()).hexdigest()}"
+            try:
+                cached = await redis_client.get(cache_key)
+                if cached:
+                    return json.loads(cached)
+            except Exception as e:
+                print(f"[Cache Warning] Redis get error: {e}")
+
         query = get_filtered_prs_query(repo_id, filters)
         
         subq = query.subquery()
@@ -140,7 +162,9 @@ class ExtendedAnalytics:
         result = await self.db.execute(select(func.count(subq.c.id)).where(subq.c.state == "CLOSED"))
         closed_not_merged_count = result.scalar() or 0
 
-        return {
+        closed_not_merged_count = result.scalar() or 0
+
+        final_data = {
             "total_prs": total_count,
             "open_prs": open_count,
             "merged_prs": merged_count,
@@ -165,6 +189,14 @@ class ExtendedAnalytics:
             "expected_workflows": repo.expected_workflows if repo else 0,
             "synced_workflows": repo.synced_workflows if repo else 0,
         }
+        
+        if redis_client and cache_key:
+            try:
+                await redis_client.setex(cache_key, 900, json.dumps(final_data))
+            except Exception as e:
+                print(f"[Cache Warning] Redis set error: {e}")
+                
+        return final_data
 
     async def get_monthly_flow_filtered(
         self, repo_id: int, months: int = 6, **filter_kw

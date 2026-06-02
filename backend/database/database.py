@@ -35,8 +35,8 @@ engine = create_async_engine(
     SQLALCHEMY_DATABASE_URL,
     echo=False,
     pool_pre_ping=False,  # Disabled: SQLAlchemy 2.0.23 pymysql dialect ping() incompatible with aiomysql
-    pool_size=10,
-    max_overflow=20,
+    pool_size=50,
+    max_overflow=100,
     pool_recycle=3600,
 )
 

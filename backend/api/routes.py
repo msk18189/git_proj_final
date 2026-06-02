@@ -138,7 +138,6 @@ async def signup(request: Request, payload: UserSignup, response: Response, db: 
     _set_auth_cookies(response, access_token)
     
     return TokenResponse(
-        access_token=access_token,
         refresh_token=refresh_token_value,
         expires_in=expires_in,
         username=new_user.username,
@@ -178,7 +177,6 @@ async def login(request: Request, payload: UserLogin, response: Response, db: As
     _set_auth_cookies(response, access_token)
     
     return TokenResponse(
-        access_token=access_token,
         refresh_token=refresh_token_value,
         expires_in=expires_in,
         username=user.username,
@@ -257,7 +255,6 @@ async def refresh_access_token(request: Request, payload: RefreshTokenRequest, r
     _set_auth_cookies(response, access_token)
     
     return TokenResponse(
-        access_token=access_token,
         refresh_token=new_refresh_token_value,
         expires_in=expires_in,
         username=user.username,
@@ -578,6 +575,7 @@ async def analyze_repository(
                 stars=0,
                 sync_status="PENDING",
                 sync_progress="Enqueuing background ingestion job...",
+                visibility="private"  # SECURITY: Fail closed. Assume private until SyncEngine verifies it's public.
             )
             db.add(repo)
             await db.flush()
@@ -619,7 +617,7 @@ async def analyze_repository(
             "message": "Full repository ingestion started in background.",
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Invalid request parameters.")
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to start repository analysis. Please try again.")
 
@@ -1183,7 +1181,7 @@ async def export_report(
             headers={"Content-Disposition": f"attachment; filename=prism_report_{repo_id}.csv"},
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Invalid request parameters.")
 
 
 @router.get("/api/export-pdf/{repo_id}")
@@ -1295,7 +1293,7 @@ async def export_report_pdf(
         )
     except ValueError as e:
         status_code = 404 if "not found" in str(e).lower() else 400
-        raise HTTPException(status_code=status_code, detail=str(e))
+        raise HTTPException(status_code=status_code, detail="Invalid request or repository not found.")
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1364,13 +1362,13 @@ async def get_system_status(
             "endpoints_check": endpoints_report
         }
     except Exception as e:
-        return {"status": "error", "error": str(e), "timestamp": datetime.now(timezone.utc).isoformat()}
+        import logging
+        logging.error(f"System status error: {e}")
+        return {"status": "error", "error": "Internal server error.", "timestamp": datetime.now(timezone.utc).isoformat()}
 
-
-@router.get("/api/compare")
-async def compare_repositories_get(
-    url_a: str,
-    url_b: str,
+@router.post("/api/compare")
+async def compare_repositories_post(
+    payload: CompareRequest,
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
@@ -1382,8 +1380,8 @@ async def compare_repositories_get(
     """
     try:
         from services.data_processor import parse_github_repo_url, normalize_github_url
-        owner_a, name_a = parse_github_repo_url(url_a)
-        owner_b, name_b = parse_github_repo_url(url_b)
+        owner_a, name_a = parse_github_repo_url(payload.url_a)
+        owner_b, name_b = parse_github_repo_url(payload.url_b)
 
         result = await db.execute(
             select(Repository).where(

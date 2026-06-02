@@ -18,7 +18,9 @@ load_dotenv()
 # SECURITY: In production, set CELERY_BROKER_URL with a password:
 #   redis://:your_redis_password@localhost:6379/0
 # Configure Redis requirepass in redis.conf on the server.
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+redis_pw = os.getenv("REDIS_PASSWORD", "")
+redis_auth = f":{redis_pw}@" if redis_pw else ""
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", f"redis://{redis_auth}localhost:6379/0")
 
 celery_app = Celery(
     "prism",
@@ -34,15 +36,15 @@ celery_app.conf.update(
 
     # Reliability
     task_acks_late=True,                    # Ack after task completes (crash recovery)
-    worker_prefetch_multiplier=1,           # Don't prefetch extra tasks
+    worker_prefetch_multiplier=2,           # Increased from 1 to allow slightly better throughput
     task_reject_on_worker_lost=True,        # Re-queue if worker dies
     task_track_started=True,                # Track STARTED state
 
     # Connection
     broker_connection_retry_on_startup=True,
 
-    # Concurrency: limit to 2 concurrent syncs to avoid GitHub rate limits
-    worker_concurrency=2,
+    # Concurrency: Increased to 10 for better SaaS scalability
+    worker_concurrency=10,
 
     # Timeouts
     task_soft_time_limit=1800,              # 30 min soft limit

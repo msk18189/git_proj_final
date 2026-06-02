@@ -166,6 +166,9 @@ class SyncEngine:
                 is_private = estimates.get("is_private", False)
                 estimated_reqs = estimates.get("estimated_requests_rest", 0)
 
+                # SECURITY: Persist the actual visibility from GitHub to prevent IDOR vulnerabilities.
+                self.repo.visibility = "private" if is_private else "public"
+
                 if is_private and not has_token:
                     raise Exception("Private repositories require a GitHub Personal Access Token.")
                 if not is_private and not has_token and estimated_reqs > 60 and not self.lightweight_mode:

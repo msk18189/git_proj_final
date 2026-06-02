@@ -22,7 +22,7 @@ const securityHeaders = [
   },
   {
     key: 'Content-Security-Policy',
-    value: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https:; font-src 'self' data:; connect-src 'self' http: https: ws: wss:; object-src 'none'; frame-ancestors 'none';",
+    value: `default-src 'self'; script-src 'self' ${process.env.NODE_ENV === 'development' ? "'unsafe-eval'" : ""} 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https:; font-src 'self' data:; connect-src 'self' http: https: ws: wss:; object-src 'none'; frame-ancestors 'none';`.replace(/\s+/g, ' ').trim(),
   },
 ];
 
