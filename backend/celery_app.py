@@ -15,6 +15,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# SECURITY: In production, set CELERY_BROKER_URL with a password:
+#   redis://:your_redis_password@localhost:6379/0
+# Configure Redis requirepass in redis.conf on the server.
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 
 celery_app = Celery(

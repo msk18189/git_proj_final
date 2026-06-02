@@ -68,8 +68,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS", "DELETE"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Cookie", "X-Requested-With"],
 )
 
 @app.on_event("startup")

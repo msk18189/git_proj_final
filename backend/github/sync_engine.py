@@ -60,12 +60,12 @@ class SyncProgress:
 
         if persist:
             try:
-                self.repo.sync_progress = full_msg[:512]
                 if self.lock:
                     # Skip writing sync_progress updates to the database from concurrent tasks
-                    # to prevent parent-child foreign key deadlocks in InnoDB.
+                    # to prevent parent-child foreign key deadlocks in InnoDB and MissingGreenlet exceptions.
                     pass
                 else:
+                    self.repo.sync_progress = full_msg[:512]
                     await self.db.commit()
             except Exception:
                 try:
@@ -416,7 +416,7 @@ class SyncEngine:
         await self.progress.update(f"Syncing {module_name.replace('_', ' ').title()}...", module=module_name, persist=False)
         
         merged_state = {
-            "sync_cursors": self.repo.sync_cursors
+            "sync_cursors": None
         }
 
         async with async_session_maker() as db:
@@ -424,6 +424,8 @@ class SyncEngine:
             repo_instance = (await db.execute(
                 select(Repository).where(Repository.id == self.repo.id)
             )).scalar_one()
+            
+            merged_state["sync_cursors"] = repo_instance.sync_cursors
 
             # Intercept flush to capture cursors
             original_flush = db.flush

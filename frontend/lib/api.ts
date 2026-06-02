@@ -300,8 +300,8 @@ export const getRepoHealth = async (repoId: number) => {
 
 // ─── ML & Export ─────────────────────────────────────────────────────────
 
-export const compareRepositories = async (urlA: string, urlB: string, githubToken?: string) => {
-  const response = await api.get('/api/compare', { params: { url_a: urlA, url_b: urlB, github_token: githubToken } })
+export const compareRepositories = async (urlA: string, urlB: string) => {
+  const response = await api.get('/api/compare', { params: { url_a: urlA, url_b: urlB } })
   return response.data
 }
 

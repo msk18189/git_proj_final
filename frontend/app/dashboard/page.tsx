@@ -989,8 +989,8 @@ function OverviewSection({ kpi, monthlyFlow, syncStatus, repoLabel, onNavigate, 
                   {item.trend === 'Stable' && <CheckCircle className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />}
                 </div>
                 {/* Hover tooltip */}
-                <div className="absolute left-0 right-0 bottom-full mb-2 z-50 hidden group-hover/strip:block">
-                  <div className="rounded-lg border border-border bg-white dark:bg-slate-900 p-3 shadow-xl text-xs text-secondary leading-relaxed min-w-[220px] max-w-[300px]">
+                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-[99] hidden group-hover/strip:block w-max max-w-[300px]">
+                  <div className="rounded-lg border border-border bg-white dark:bg-slate-900 p-3 shadow-xl text-xs text-secondary leading-relaxed">
                     <p className="font-bold text-primary mb-1">{item.title}</p>
                     <p>{item.tooltip}</p>
                   </div>
@@ -1024,8 +1024,8 @@ function OverviewSection({ kpi, monthlyFlow, syncStatus, repoLabel, onNavigate, 
                   </p>
                 </div>
                 {/* Hover tooltip */}
-                <div className="absolute left-0 right-0 bottom-full mb-2 z-50 hidden group-hover/stale:block">
-                  <div className="rounded-lg border border-rose-200 dark:border-rose-800 bg-white dark:bg-slate-900 p-3 shadow-xl text-xs text-secondary leading-relaxed">
+                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-[99] hidden group-hover/stale:block w-max max-w-[300px]">
+                  <div className="rounded-lg border border-rose-200 dark:border-rose-800 bg-white dark:bg-slate-900 p-3 shadow-xl text-xs text-secondary leading-relaxed whitespace-normal text-left">
                     <p className="font-bold text-rose-700 dark:text-rose-400 mb-1">⚠ Stale Pull Requests</p>
                     <p>{kpi?.stale_prs > 0 ? `${kpi.stale_prs} PR${kpi.stale_prs !== 1 ? 's have' : ' has'} been open for more than 30 days without activity. Consider reviewing, merging, or closing them to keep the backlog healthy.` : 'No stale PRs detected — your backlog is clean and current.'}</p>
                   </div>
@@ -1044,8 +1044,8 @@ function OverviewSection({ kpi, monthlyFlow, syncStatus, repoLabel, onNavigate, 
                   </p>
                 </div>
                 {/* Hover tooltip */}
-                <div className="absolute left-0 right-0 bottom-full mb-2 z-50 hidden group-hover/open:block">
-                  <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-white dark:bg-slate-900 p-3 shadow-xl text-xs text-secondary leading-relaxed">
+                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-[99] hidden group-hover/open:block w-max max-w-[300px]">
+                  <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-white dark:bg-slate-900 p-3 shadow-xl text-xs text-secondary leading-relaxed whitespace-normal text-left">
                     <p className="font-bold text-amber-700 dark:text-amber-400 mb-1">📋 Open Pull Requests</p>
                     <p>{kpi?.open_prs > 0 ? `${kpi.open_prs} PR${kpi.open_prs !== 1 ? 's are' : ' is'} currently open and awaiting review or merge. A high count may indicate reviewer bottlenecks or scope creep.` : 'No open PRs — all pull requests have been resolved.'}</p>
                   </div>
@@ -1064,8 +1064,8 @@ function OverviewSection({ kpi, monthlyFlow, syncStatus, repoLabel, onNavigate, 
                   </p>
                 </div>
                 {/* Hover tooltip */}
-                <div className="absolute left-0 right-0 bottom-full mb-2 z-50 hidden group-hover/cicd:block">
-                  <div className="rounded-lg border border-red-200 dark:border-red-800 bg-white dark:bg-slate-900 p-3 shadow-xl text-xs text-secondary leading-relaxed">
+                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-[99] hidden group-hover/cicd:block w-max max-w-[300px]">
+                  <div className="rounded-lg border border-red-200 dark:border-red-800 bg-white dark:bg-slate-900 p-3 shadow-xl text-xs text-secondary leading-relaxed whitespace-normal text-left">
                     <p className="font-bold text-red-700 dark:text-red-400 mb-1">🔧 CI/CD Pipeline Health</p>
                     <p>{repoHealth?.components?.ci_cd != null ? (Math.round((repoHealth.components.ci_cd / 25) * 100) < 80 ? `Pipeline reliability is at ${Math.round((repoHealth.components.ci_cd / 25) * 100)}%. Frequent failures or flaky tests may be blocking deployments. Review workflow logs for root causes.` : `Pipeline is running at ${Math.round((repoHealth.components.ci_cd / 25) * 100)}% reliability — builds and deployments are stable.`) : 'CI/CD data not yet available. Sync the repository to see pipeline health metrics.'}</p>
                   </div>
@@ -1084,8 +1084,8 @@ function OverviewSection({ kpi, monthlyFlow, syncStatus, repoLabel, onNavigate, 
                   </p>
                 </div>
                 {/* Hover tooltip */}
-                <div className="absolute left-0 right-0 bottom-full mb-2 z-50 hidden group-hover/cycle:block">
-                  <div className="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 p-3 shadow-xl text-xs text-secondary leading-relaxed">
+                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-[99] hidden group-hover/cycle:block w-max max-w-[300px]">
+                  <div className="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 p-3 shadow-xl text-xs text-secondary leading-relaxed whitespace-normal text-left">
                     <p className="font-bold text-indigo-700 dark:text-indigo-400 mb-1">⏱ Average Cycle Time</p>
                     <p>{kpi?.avg_cycle_time != null ? (kpi.avg_cycle_time > 5 ? `PRs take an average of ${renderDuration(formatDurationFromDays(kpi.avg_cycle_time))} from creation to merge. This is above the recommended 5-day threshold — consider smaller PRs or faster reviews.` : `Cycle time of ${renderDuration(formatDurationFromDays(kpi.avg_cycle_time))} is within healthy range, indicating efficient development velocity.`) : 'Cycle time data not yet available.'}</p>
                   </div>

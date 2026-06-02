@@ -17,7 +17,7 @@ from services.module_analytics import (
     CICDAnalytics, DiscussionAnalytics, ProjectAnalytics, RepoHealthAnalytics
 )
 from pydantic import BaseModel
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta  
 from typing import Optional
 import io
 import threading
@@ -186,7 +186,8 @@ async def login(request: Request, payload: UserLogin, response: Response, db: As
     )
 
 @router.post("/api/auth/refresh", response_model=TokenResponse)
-async def refresh_access_token(payload: RefreshTokenRequest, response: Response, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def refresh_access_token(request: Request, payload: RefreshTokenRequest, response: Response, db: AsyncSession = Depends(get_db)):
     """Exchange a refresh token for a new access token.
     
     - Validates that the refresh token exists, is not revoked, and has not expired
@@ -244,7 +245,7 @@ async def refresh_access_token(payload: RefreshTokenRequest, response: Response,
     # Revoke the old refresh token
     refresh_token.revoked = True
     
-    # Create the new refresh token
+    # Create the new refresh token (store as hash)
     new_refresh_token = RefreshToken(
         user_id=user.id,
         token_value=hash_refresh_token(new_refresh_token_value),
@@ -480,19 +481,25 @@ async def verify_repository(request: Request, payload: RepositoryRequest, db: As
 @router.get("/api/repositories")
 async def get_repositories(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    """List repositories visible to the current user."""
+    """List repositories accessible to the current user (public repos + user's own private repos)."""
     try:
-        result = await db.execute(
-            select(Repository)
-            .outerjoin(UserRepository, UserRepository.repo_id == Repository.id)
-            .where(
-                (Repository.visibility == "public") |
-                (UserRepository.user_id == current_user.id)
+        from database.models import UserRepository
+        if current_user:
+            user_repo_ids_res = await db.execute(
+                select(UserRepository.repo_id).where(UserRepository.user_id == current_user.id)
             )
-            .distinct()
-        )
+            user_repo_ids = {row[0] for row in user_repo_ids_res.fetchall()}
+            result = await db.execute(
+                select(Repository).where(
+                    (Repository.visibility == "public") | (Repository.id.in_(user_repo_ids))
+                )
+            )
+        else:
+            result = await db.execute(
+                select(Repository).where(Repository.visibility == "public")
+            )
         repos = result.scalars().all()
         res = []
         for r in repos:
@@ -527,7 +534,7 @@ async def get_repositories(
             })
         return res
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve repositories.")
 
 @router.post("/api/analyze")
 @limiter.limit(config.ANALYZE_RATE_LIMIT)
@@ -614,19 +621,20 @@ async def analyze_repository(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to start repository analysis. Please try again.")
 
 
 @router.get("/api/sync-status/{repo_id}")
-async def get_sync_status(repo_id: int, db: AsyncSession = Depends(get_db)):
+async def get_sync_status(
+    repo_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Get sync status, progress (with ETA), and per-module record counts."""
     from datetime import datetime, timedelta, timezone
     from config import SYNC_INTERVAL_MINUTES
-    
-    result = await db.execute(select(Repository).where(Repository.id == repo_id))
-    repo = result.scalar_one_or_none()
-    if not repo:
-        raise HTTPException(status_code=404, detail="Repository not found")
+
+    repo = await require_repo_access(repo_id, current_user, db)
     
     # Count contributors dynamically
     contrib_count_res = await db.execute(select(func.count(Contributor.id)).where(Contributor.repo_id == repo_id))
@@ -697,8 +705,10 @@ async def get_kpi(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """PR KPI summary."""
+    await require_repo_access(repo_id, current_user, db)
     ext = ExtendedAnalytics(db)
     return await ext.get_kpi_with_duration(repo_id, days, author, state, start_date, end_date)
 
@@ -709,7 +719,9 @@ async def get_oldest_prs(
     days: Optional[int] = None, author: Optional[str] = None,
     start_date: Optional[str] = None, end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
+    await require_repo_access(repo_id, current_user, db)
     ext = ExtendedAnalytics(db)
     return await ext.get_oldest_open_filtered(repo_id, page=page, limit=limit, days=days, author=author,
                                         start_date=start_date, end_date=end_date)
@@ -721,7 +733,9 @@ async def get_slowest_prs(
     days: Optional[int] = None, author: Optional[str] = None,
     start_date: Optional[str] = None, end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
+    await require_repo_access(repo_id, current_user, db)
     ext = ExtendedAnalytics(db)
     return await ext.get_slowest_merged_filtered(repo_id, page=page, limit=limit, days=days, author=author,
                                            start_date=start_date, end_date=end_date)
@@ -733,7 +747,9 @@ async def get_contributor_activity(
     days: Optional[int] = None, author: Optional[str] = None,
     state: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
+    await require_repo_access(repo_id, current_user, db)
     ext = ExtendedAnalytics(db)
     return await ext.get_contributors_filtered(repo_id, page=page, limit=limit, days=days, author=author,
                                          state=state, start_date=start_date, end_date=end_date)
@@ -745,7 +761,9 @@ async def get_monthly_flow(
     author: Optional[str] = None, state: Optional[str] = None,
     start_date: Optional[str] = None, end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
+    await require_repo_access(repo_id, current_user, db)
     ext = ExtendedAnalytics(db)
     return await ext.get_monthly_flow_filtered(repo_id, months, days=days, author=author,
                                          state=state, start_date=start_date, end_date=end_date)
@@ -757,26 +775,44 @@ async def get_throughput(
     author: Optional[str] = None, state: Optional[str] = None,
     start_date: Optional[str] = None, end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
+    await require_repo_access(repo_id, current_user, db)
     ext = ExtendedAnalytics(db)
     return await ext.get_throughput_filtered(repo_id, weeks, days=days, author=author,
                                        state=state, start_date=start_date, end_date=end_date)
 
 
 @router.get("/api/authors/{repo_id}")
-async def get_authors(repo_id: int, db: AsyncSession = Depends(get_db)):
+async def get_authors(
+    repo_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    await require_repo_access(repo_id, current_user, db)
     ext = ExtendedAnalytics(db)
     return {"authors": await ext.get_authors(repo_id)}
 
 
 @router.get("/api/pr-risk/{repo_id}")
-async def get_pr_risk(repo_id: int, page: int = 1, limit: int = 15, db: AsyncSession = Depends(get_db)):
+async def get_pr_risk(
+    repo_id: int,
+    page: int = 1,
+    limit: int = 15,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    await require_repo_access(repo_id, current_user, db)
     ext = ExtendedAnalytics(db)
     return await ext.get_pr_risk_panel(repo_id, page=page, limit=limit)
 
 
 @router.post("/api/refresh-ml/{repo_id}")
-async def refresh_ml_predictions(repo_id: int, db: AsyncSession = Depends(get_db)):
+async def refresh_ml_predictions(
+    repo_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Trigger ML inference for all open PRs of a repository.
 
     Runs synchronously in the request thread. Returns the count of PRs
@@ -784,10 +820,7 @@ async def refresh_ml_predictions(repo_id: int, db: AsyncSession = Depends(get_db
     manually from the Settings panel.
     """
     from database.models import MLPrediction
-    result = await db.execute(select(Repository).where(Repository.id == repo_id))
-    repo = result.scalar_one_or_none()
-    if not repo:
-        raise HTTPException(status_code=404, detail="Repository not found")
+    await require_repo_access(repo_id, current_user, db)
 
     try:
         processor = DataProcessor(db)
@@ -805,11 +838,15 @@ async def refresh_ml_predictions(repo_id: int, db: AsyncSession = Depends(get_db
             "reason": f"Refreshed {count} open PR prediction(s) successfully.",
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"ML refresh failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="ML prediction refresh failed. Please try again.")
 
 
 @router.get("/api/ml-status/{repo_id}")
-async def get_ml_status(repo_id: int, db: AsyncSession = Depends(get_db)):
+async def get_ml_status(
+    repo_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Return ML readiness diagnostics for a repository.
 
     Used by the frontend to render informative empty-state messages
@@ -818,10 +855,7 @@ async def get_ml_status(repo_id: int, db: AsyncSession = Depends(get_db)):
     from database.models import MLPrediction, PullRequest as PR
     from ml.models import MLModels
 
-    result = await db.execute(select(Repository).where(Repository.id == repo_id))
-    repo = result.scalar_one_or_none()
-    if not repo:
-        raise HTTPException(status_code=404, detail="Repository not found")
+    await require_repo_access(repo_id, current_user, db)
 
     result = await db.execute(select(func.count(PR.id)).where(PR.repo_id == repo_id, PR.state == "OPEN"))
     open_prs = result.scalar() or 0
@@ -860,8 +894,10 @@ async def get_stale_alerts(
     page: int = 1,
     limit: int = 10,
     stale_days: int = Query(default=30, description="Stale threshold in days"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
+    await require_repo_access(repo_id, current_user, db)
     ext = ExtendedAnalytics(db)
     return await ext.get_stale_recommendations(repo_id, page=page, limit=limit, stale_days=stale_days)
 
@@ -878,14 +914,21 @@ async def get_issues(
     sort: str = "created_at",
     sort_dir: str = "desc",
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Paginated issue list."""
+    await require_repo_access(repo_id, current_user, db)
     return await IssueAnalytics(db).get_issues_list(repo_id, state=state, page=page, limit=limit, label=label, search=search, sort=sort, sort_dir=sort_dir)
 
 
 @router.get("/api/issues/analytics/{repo_id}")
-async def get_issues_analytics(repo_id: int, db: AsyncSession = Depends(get_db)):
+async def get_issues_analytics(
+    repo_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Issue analytics summary."""
+    await require_repo_access(repo_id, current_user, db)
     ia = IssueAnalytics(db)
     return {
         "summary": await ia.get_summary(repo_id),
@@ -902,7 +945,9 @@ async def get_stale_issues(
     sort: str = "created_at",
     sort_dir: str = "asc",
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
+    await require_repo_access(repo_id, current_user, db)
     return await IssueAnalytics(db).get_stale_issues(repo_id, stale_days=stale_days, page=page, limit=limit, search=search, sort=sort, sort_dir=sort_dir)
 
 
@@ -915,14 +960,21 @@ async def get_branches(
     repo_id: int, page: int = 1, limit: int = 20,
     filter_type: str = "all",
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Paginated branch list."""
+    await require_repo_access(repo_id, current_user, db)
     return await BranchAnalytics(db).get_branches_list(repo_id, page=page, limit=limit, filter_type=filter_type)
 
 
 @router.get("/api/branches/analytics/{repo_id}")
-async def get_branches_analytics(repo_id: int, db: AsyncSession = Depends(get_db)):
+async def get_branches_analytics(
+    repo_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Branch analytics summary."""
+    await require_repo_access(repo_id, current_user, db)
     return await BranchAnalytics(db).get_summary(repo_id)
 
 
@@ -935,14 +987,21 @@ async def get_forks(
     repo_id: int, page: int = 1, limit: int = 20,
     filter_type: str = "all",
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Paginated fork list."""
+    await require_repo_access(repo_id, current_user, db)
     return await ForkAnalytics(db).get_forks_list(repo_id, page=page, limit=limit, filter_type=filter_type)
 
 
 @router.get("/api/forks/analytics/{repo_id}")
-async def get_forks_analytics(repo_id: int, db: AsyncSession = Depends(get_db)):
+async def get_forks_analytics(
+    repo_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Fork analytics summary."""
+    await require_repo_access(repo_id, current_user, db)
     fa = ForkAnalytics(db)
     return {
         "summary": await fa.get_summary(repo_id),
@@ -955,8 +1014,13 @@ async def get_forks_analytics(repo_id: int, db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/cicd/analytics/{repo_id}")
-async def get_cicd_analytics(repo_id: int, db: AsyncSession = Depends(get_db)):
+async def get_cicd_analytics(
+    repo_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """CI/CD analytics summary."""
+    await require_repo_access(repo_id, current_user, db)
     ca = CICDAnalytics(db)
     return {
         "summary": await ca.get_summary(repo_id),
@@ -970,8 +1034,10 @@ async def get_workflow_runs(
     repo_id: int, page: int = 1, limit: int = 20,
     conclusion: Optional[str] = None, branch: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Paginated workflow runs."""
+    await require_repo_access(repo_id, current_user, db)
     return await CICDAnalytics(db).get_runs_list(repo_id, page=page, limit=limit,
                                            conclusion=conclusion, branch=branch)
 
@@ -981,19 +1047,36 @@ async def get_workflow_runs(
 # ---------------------------------------------------------------------------
 
 @router.get("/api/discussions/{repo_id}")
-async def get_discussions(repo_id: int, page: int = 1, limit: int = 20, db: AsyncSession = Depends(get_db)):
+async def get_discussions(
+    repo_id: int,
+    page: int = 1,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Paginated discussions list."""
+    await require_repo_access(repo_id, current_user, db)
     return await DiscussionAnalytics(db).get_discussions_list(repo_id, page=page, limit=limit)
 
 
 @router.get("/api/discussions/analytics/{repo_id}")
-async def get_discussions_analytics(repo_id: int, db: AsyncSession = Depends(get_db)):
+async def get_discussions_analytics(
+    repo_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Discussion analytics summary."""
+    await require_repo_access(repo_id, current_user, db)
     return await DiscussionAnalytics(db).get_summary(repo_id)
 
 @router.get("/api/discussions/timeline/{repo_id}")
-async def get_discussions_timeline(repo_id: int, db: AsyncSession = Depends(get_db)):
+async def get_discussions_timeline(
+    repo_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Discussion activity timeline over time."""
+    await require_repo_access(repo_id, current_user, db)
     return await DiscussionAnalytics(db).get_activity_timeline(repo_id)
 
 
@@ -1002,14 +1085,26 @@ async def get_discussions_timeline(repo_id: int, db: AsyncSession = Depends(get_
 # ---------------------------------------------------------------------------
 
 @router.get("/api/projects/{repo_id}")
-async def get_projects(repo_id: int, page: int = 1, limit: int = 10, db: AsyncSession = Depends(get_db)):
+async def get_projects(
+    repo_id: int,
+    page: int = 1,
+    limit: int = 10,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Paginated projects list."""
+    await require_repo_access(repo_id, current_user, db)
     return await ProjectAnalytics(db).get_projects_list(repo_id, page=page, limit=limit)
 
 
 @router.get("/api/projects/analytics/{repo_id}")
-async def get_projects_analytics(repo_id: int, db: AsyncSession = Depends(get_db)):
+async def get_projects_analytics(
+    repo_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Project analytics summary."""
+    await require_repo_access(repo_id, current_user, db)
     return await ProjectAnalytics(db).get_summary(repo_id)
 
 
@@ -1018,8 +1113,13 @@ async def get_projects_analytics(repo_id: int, db: AsyncSession = Depends(get_db
 # ---------------------------------------------------------------------------
 
 @router.get("/api/repo-health/{repo_id}")
-async def get_repo_health(repo_id: int, db: AsyncSession = Depends(get_db)):
+async def get_repo_health(
+    repo_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Aggregate repository health score across all modules."""
+    await require_repo_access(repo_id, current_user, db)
     return await RepoHealthAnalytics(db).get_health_score(repo_id)
 
 
@@ -1028,7 +1128,10 @@ async def get_repo_health(repo_id: int, db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/ml-status")
-async def get_ml_status(db: AsyncSession = Depends(get_db)):
+async def get_ml_status_global(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     ml_models = MLModels()
     return {
         "models_exist": ml_models.models_exist(),
@@ -1038,7 +1141,10 @@ async def get_ml_status(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/api/train-ml")
-async def train_ml_models(db: AsyncSession = Depends(get_db)):
+async def train_ml_models(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     try:
         ml_models = MLModels()
         result = await ml_models.train_from_db(db)
@@ -1053,7 +1159,7 @@ async def train_ml_models(db: AsyncSession = Depends(get_db)):
             "predictions_refreshed": prediction_refresh_count,
         }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="ML training failed. Please check server logs.")
 
 
 # ---------------------------------------------------------------------------
@@ -1193,14 +1299,15 @@ async def export_report_pdf(
     except Exception as e:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="PDF report generation failed. Please try again.")
 
 
 @router.get("/api/system-status")
 async def get_system_status(
     validate_endpoints: bool = Query(default=False),
     repo_id: Optional[int] = Query(default=None),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     try:
         from services.validation import SystemIntegrityValidator, test_rest_endpoints
@@ -1262,8 +1369,10 @@ async def get_system_status(
 
 @router.get("/api/compare")
 async def compare_repositories_get(
-    url_a: str, url_b: str, github_token: Optional[str] = None,
+    url_a: str,
+    url_b: str,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Compare two repositories side by side using already-synced data.
 
@@ -1303,9 +1412,13 @@ async def compare_repositories_get(
                        "Please sync it via the Analyze page first."
             )
 
+        # Enforce access control for both repositories
+        await require_repo_access(repo_a.id, current_user, db)
+        await require_repo_access(repo_b.id, current_user, db)
+
         ext = ExtendedAnalytics(db)
         return await ext.compare_repos(repo_a.id, repo_b.id)
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Repository comparison failed. Please check the repository URLs.")

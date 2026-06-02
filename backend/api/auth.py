@@ -3,6 +3,7 @@ import re
 import hmac
 import hashlib
 import jwt
+import hashlib
 from datetime import datetime, timezone, timedelta
 import bcrypt
 from pydantic import BaseModel, EmailStr, Field, field_validator

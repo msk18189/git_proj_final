@@ -29,7 +29,7 @@ export default function CompareRepos({ defaultUrl, githubToken = '' }: CompareRe
     setError(null)
     try {
       const token = compareToken.trim() || githubToken?.trim() || undefined
-      const data = await compareRepositories(urlA.trim(), urlB.trim(), token)
+      const data = await compareRepositories(urlA.trim(), urlB.trim())
       setResult(data)
     } catch (err) {
       setError(formatApiError(err))
