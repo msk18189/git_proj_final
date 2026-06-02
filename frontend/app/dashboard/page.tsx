@@ -787,7 +787,12 @@ function OverviewSection({ kpi, monthlyFlow, syncStatus, repoLabel, onNavigate, 
       icon: <GitMerge className="h-4 w-4" />,
       style: realMergeRate !== null && realMergeRate >= 75
         ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-250 dark:border-emerald-900/30'
-        : 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-900/30'
+        : 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-900/30',
+      tooltip: realMergeRate !== null
+        ? (realMergeRate >= 75
+          ? `Merge rate of ${realMergeRate}% is healthy — most PRs are being successfully merged after review.`
+          : `Merge rate of ${realMergeRate}% is below the 75% target. This may indicate PRs being abandoned, rejected, or stuck in review. Consider reviewing your team's PR practices.`)
+        : 'Merge rate data will appear after repository sync completes.'
     },
     {
       title: 'Review Wait',
@@ -796,7 +801,12 @@ function OverviewSection({ kpi, monthlyFlow, syncStatus, repoLabel, onNavigate, 
       icon: <Eye className="h-4 w-4" />,
       style: realWaitDays !== null && realWaitDays <= 2
         ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-250 dark:border-emerald-900/30'
-        : 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-900/30'
+        : 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-900/30',
+      tooltip: realWaitDays !== null
+        ? (realWaitDays <= 2
+          ? `Average review wait of ${renderDuration(formatDurationFromDays(realWaitDays))} is within the 2-day SLA — reviewers are responding promptly.`
+          : `Average review wait of ${renderDuration(formatDurationFromDays(realWaitDays))} exceeds the 2-day SLA. PRs are waiting too long for first review. Consider adding more reviewers or setting up review reminders.`)
+        : 'Review wait data will appear after repository sync completes.'
     },
     {
       title: 'Stale PRs',
@@ -805,7 +815,12 @@ function OverviewSection({ kpi, monthlyFlow, syncStatus, repoLabel, onNavigate, 
       icon: <AlertCircle className="h-4 w-4" />,
       style: realStaleCount !== null && realStaleCount === 0
         ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-250 dark:border-emerald-900/30'
-        : 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-900/30'
+        : 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-900/30',
+      tooltip: realStaleCount !== null
+        ? (realStaleCount === 0
+          ? 'No stale PRs — your backlog is clean and all PRs are being actively worked on.'
+          : `${realStaleCount} PR${realStaleCount !== 1 ? 's have' : ' has'} been open for more than 30 days without activity. Consider reviewing, merging, or closing them to keep the backlog healthy.`)
+        : 'Stale PR data will appear after repository sync completes.'
     },
     {
       title: 'CI/CD Health',
@@ -814,7 +829,12 @@ function OverviewSection({ kpi, monthlyFlow, syncStatus, repoLabel, onNavigate, 
       icon: <CheckCircle className="h-4 w-4" />,
       style: ciScore !== null && ciScore >= 80
         ? 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-900/30'
-        : 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-900/30'
+        : 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-900/30',
+      tooltip: ciScore !== null
+        ? (ciScore >= 80
+          ? `CI/CD pipeline is running at ${ciScore}% reliability — builds and deployments are stable.`
+          : `CI/CD reliability is at ${ciScore}%, below the 80% stability threshold. Frequent failures or flaky tests may be blocking deployments. Review workflow logs for root causes.`)
+        : 'CI/CD health data will appear after repository sync completes.'
     },
   ]
 
@@ -882,7 +902,7 @@ function OverviewSection({ kpi, monthlyFlow, syncStatus, repoLabel, onNavigate, 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Executive Summary Hero Card */}
-        <div className="lg:col-span-2 rounded-2xl border border-border bg-surface p-5 flex flex-col justify-between shadow-sm relative overflow-hidden">
+        <div className="lg:col-span-2 rounded-2xl border border-border bg-surface p-5 flex flex-col justify-between shadow-sm relative">
           <div className="absolute right-0 top-0 h-40 w-40 bg-gradient-to-bl from-indigo-500/5 to-transparent rounded-full blur-3xl pointer-events-none" />
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -953,7 +973,7 @@ function OverviewSection({ kpi, monthlyFlow, syncStatus, repoLabel, onNavigate, 
           {/* Metric horizontal strip */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 border-t border-border pt-4">
             {statusStrip.map((item) => (
-              <div key={item.title} className="space-y-1.5">
+              <div key={item.title} className="group/strip relative space-y-1.5 cursor-help">
                 <span className="text-[10px] font-bold text-muted uppercase tracking-wider block">{item.title}</span>
                 <div className="flex items-center gap-1.5">
                   <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold border ${item.style}`}>
@@ -968,13 +988,20 @@ function OverviewSection({ kpi, monthlyFlow, syncStatus, repoLabel, onNavigate, 
                   {item.trend === 'Needs attention' && <AlertCircle className="h-3 w-3 text-rose-600 dark:text-rose-400" />}
                   {item.trend === 'Stable' && <CheckCircle className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />}
                 </div>
+                {/* Hover tooltip */}
+                <div className="absolute left-0 right-0 bottom-full mb-2 z-50 hidden group-hover/strip:block">
+                  <div className="rounded-lg border border-border bg-white dark:bg-slate-900 p-3 shadow-xl text-xs text-secondary leading-relaxed min-w-[220px] max-w-[300px]">
+                    <p className="font-bold text-primary mb-1">{item.title}</p>
+                    <p>{item.tooltip}</p>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
         </div>
 
         {/* Needs Attention — placed next to Executive Summary */}
-        <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm flex flex-col justify-between relative overflow-hidden">
+        <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm flex flex-col justify-between relative">
           <div className="absolute right-0 bottom-0 h-32 w-32 bg-gradient-to-tl from-rose-500/5 to-transparent rounded-full blur-3xl pointer-events-none" />
           <div>
             <div className="flex items-center gap-2 mb-4">
